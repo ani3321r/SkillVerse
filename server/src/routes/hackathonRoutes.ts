@@ -1,16 +1,12 @@
 import express from "express";
-
 import { pool } from "../config/database";
-
-import {
-  crawlAllHackathons,
-} from "../crawler/hackathonCrawler";
+import { requireAuth } from "../middleware/auth";
+import { crawlAllHackathons } from "../crawler/hackathonCrawler";
 
 const router = express.Router();
 
-
 // ============================================
-// GET HACKATHONS
+// GET HACKATHONS  (public)
 // ============================================
 
 router.get("/", async (req, res) => {
@@ -43,11 +39,7 @@ router.get("/", async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error(
-      "Get hackathons error:",
-      error
-    );
+    console.error("Get hackathons error:", error);
 
     return res.status(500).json({
       success: false,
@@ -56,18 +48,15 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 // ============================================
-// GET SINGLE HACKATHON
+// GET SINGLE HACKATHON  (public)
 // ============================================
 
 router.get("/:id", async (req, res) => {
   try {
+    const id = Number(req.params.id);
 
-    const id =
-      Number(req.params.id);
-
-    if (!id) {
+    if (!id || isNaN(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid hackathon ID",
@@ -75,17 +64,11 @@ router.get("/:id", async (req, res) => {
     }
 
     const result = await pool.query(
-      `
-      SELECT *
-      FROM hackathons
-      WHERE id = $1
-      `,
+      `SELECT * FROM hackathons WHERE id = $1`,
       [id]
     );
 
-    if (
-      result.rows.length === 0
-    ) {
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Hackathon not found",
@@ -98,107 +81,51 @@ router.get("/:id", async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error(
-      "Get hackathon error:",
-      error
-    );
+    console.error("Get hackathon error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to get hackathon",
+      message: "Failed to get hackathon",
     });
   }
 });
 
-
 // ============================================
-// RUN CRAWLER
+// RUN CRAWLER  (protected — any logged-in user)
 // ============================================
 
-router.post("/crawl", async (req, res) => {
+router.post("/crawl", requireAuth, async (req, res) => {
   try {
+    console.log("Starting hackathon crawler...");
 
-    console.log(
-      "Starting hackathon crawler..."
-    );
-
-    const hackathons =
-      await crawlAllHackathons();
+    const hackathons = await crawlAllHackathons();
 
     let saved = 0;
 
     for (const hackathon of hackathons) {
-
       await pool.query(
         `
         INSERT INTO hackathons (
-          title,
-          organizer,
-          description,
-          registration_url,
-          event_url,
-          start_date,
-          end_date,
-          registration_deadline,
-          location,
-          is_online,
-          technologies,
-          source
+          title, organizer, description,
+          registration_url, event_url,
+          start_date, end_date, registration_deadline,
+          location, is_online, technologies, source
         )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7,
-          $8,
-          $9,
-          $10,
-          $11,
-          $12
-        )
-
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (event_url)
         DO UPDATE SET
-
-          title = EXCLUDED.title,
-
-          organizer =
-            EXCLUDED.organizer,
-
-          description =
-            EXCLUDED.description,
-
-          registration_url =
-            EXCLUDED.registration_url,
-
-          start_date =
-            EXCLUDED.start_date,
-
-          end_date =
-            EXCLUDED.end_date,
-
-          registration_deadline =
-            EXCLUDED.registration_deadline,
-
-          location =
-            EXCLUDED.location,
-
-          is_online =
-            EXCLUDED.is_online,
-
-          technologies =
-            EXCLUDED.technologies,
-
-          source =
-            EXCLUDED.source,
-
-          updated_at =
-            CURRENT_TIMESTAMP
+          title                 = EXCLUDED.title,
+          organizer             = EXCLUDED.organizer,
+          description           = EXCLUDED.description,
+          registration_url      = EXCLUDED.registration_url,
+          start_date            = EXCLUDED.start_date,
+          end_date              = EXCLUDED.end_date,
+          registration_deadline = EXCLUDED.registration_deadline,
+          location              = EXCLUDED.location,
+          is_online             = EXCLUDED.is_online,
+          technologies          = EXCLUDED.technologies,
+          source                = EXCLUDED.source,
+          updated_at            = CURRENT_TIMESTAMP
         `,
         [
           hackathon.title,
@@ -221,26 +148,19 @@ router.post("/crawl", async (req, res) => {
 
     return res.json({
       success: true,
-      message:
-        "Hackathon crawling completed",
+      message: "Hackathon crawling completed",
       found: hackathons.length,
       saved,
     });
 
   } catch (error) {
-
-    console.error(
-      "Crawler error:",
-      error
-    );
+    console.error("Crawler error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Hackathon crawler failed",
+      message: "Hackathon crawler failed",
     });
   }
 });
-
 
 export default router;

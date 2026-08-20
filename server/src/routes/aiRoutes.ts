@@ -1,6 +1,7 @@
 import express from "express";
 import { GoogleGenAI } from "@google/genai";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -8,7 +9,14 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-router.post("/generate-assignment", async (req, res) => {
+// Use a stable, available Gemini model name
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+// ============================================
+// GENERATE ASSIGNMENT  (protected)
+// ============================================
+
+router.post("/generate-assignment", requireAuth, async (req, res) => {
   try {
     const {
       userId,
@@ -23,7 +31,18 @@ router.post("/generate-assignment", async (req, res) => {
       });
     }
 
-    // Get skill
+    // Caller can only generate for themselves
+    if (req.user!.userId !== Number(userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only generate assignments for yourself",
+      });
+    }
+
+    // ------------------------------------------
+    // GET SKILL
+    // ------------------------------------------
+
     const skillResult = await pool.query(
       `
       SELECT id, name, category, description
@@ -42,9 +61,12 @@ router.post("/generate-assignment", async (req, res) => {
 
     const skill = skillResult.rows[0];
 
-    // Ask Gemini
+    // ------------------------------------------
+    // BUILD PROMPT
+    // ------------------------------------------
+
     const prompt = `
-You are an educational AI for SkillVerse.
+You are an educational AI for SkillVerse, a student learning platform.
 
 Create one practical assignment for a college student.
 
@@ -52,42 +74,60 @@ Skill: ${skill.name}
 Category: ${skill.category}
 Difficulty: ${difficulty}
 
-Return ONLY valid JSON.
+Return ONLY valid JSON with no markdown fences.
 
 Format:
-
 {
   "title": "assignment title",
-  "description": "assignment explanation",
-  "question": "question for the student",
-  "expectedConcepts": [
-    "concept 1",
-    "concept 2"
-  ]
+  "description": "brief explanation of what the student should do",
+  "question": "the specific question or task for the student",
+  "expectedConcepts": ["concept 1", "concept 2"]
 }
 
 Rules:
 - Suitable for a college student.
 - Practical and educational.
-- Not extremely difficult.
-- No markdown.
+- Difficulty must match: Beginner = simple, Intermediate = moderate, Advanced = challenging.
+- No markdown in the output.
 `;
 
+    // ------------------------------------------
+    // CALL GEMINI
+    // ------------------------------------------
+
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: GEMINI_MODEL,
       contents: prompt,
     });
 
-    const text = response.text || "";
+    const rawText = response.text || "";
 
-    const cleanText = text
-      .replace(/```json/g, "")
+    const cleanText = rawText
+      .replace(/```json/gi, "")
       .replace(/```/g, "")
       .trim();
 
-    const assignment = JSON.parse(cleanText);
+    let assignment: {
+      title: string;
+      description: string;
+      question: string;
+      expectedConcepts: string[];
+    };
 
-    // Save assignment
+    try {
+      assignment = JSON.parse(cleanText);
+    } catch {
+      console.error("Gemini returned invalid JSON:", cleanText);
+      return res.status(502).json({
+        success: false,
+        message: "AI returned an invalid response. Please try again.",
+      });
+    }
+
+    // ------------------------------------------
+    // SAVE TO DB
+    // ------------------------------------------
+
     const result = await pool.query(
       `
       INSERT INTO assignments (
@@ -118,27 +158,25 @@ Rules:
     });
 
   } catch (error) {
-  console.error("================================");
-  console.error("GENERATE ASSIGNMENT ERROR");
-  console.error(error);
-  console.error("================================");
+    console.error("Generate assignment error:", error);
 
-  return res.status(500).json({
-    success: false,
-    message: "Failed to generate assignment",
-    error: error instanceof Error ? error.message : String(error),
-  });
-}
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate assignment",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
+
 // ============================================
-// GET ASSIGNMENT
+// GET ASSIGNMENT  (protected)
 // ============================================
 
-router.get("/assignment/:id", async (req, res) => {
+router.get("/assignment/:id", requireAuth, async (req, res) => {
   try {
     const assignmentId = Number(req.params.id);
 
-    if (!assignmentId) {
+    if (!assignmentId || isNaN(assignmentId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid assignment ID",
@@ -154,16 +192,11 @@ router.get("/assignment/:id", async (req, res) => {
         a.difficulty,
         a.questions,
         a.created_at,
-
-        s.id AS skill_id,
-        s.name AS skill_name,
+        s.id       AS skill_id,
+        s.name     AS skill_name,
         s.category AS skill_category
-
       FROM assignments a
-
-      INNER JOIN skills s
-        ON s.id = a.skill_id
-
+      INNER JOIN skills s ON s.id = a.skill_id
       WHERE a.id = $1
       `,
       [assignmentId]
@@ -190,11 +223,12 @@ router.get("/assignment/:id", async (req, res) => {
     });
   }
 });
+
 // ============================================
-// EVALUATE ASSIGNMENT ANSWER
+// EVALUATE ANSWER  (protected)
 // ============================================
 
-router.post("/evaluate-answer", async (req, res) => {
+router.post("/evaluate-answer", requireAuth, async (req, res) => {
   try {
     const {
       userId,
@@ -206,6 +240,14 @@ router.post("/evaluate-answer", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "userId, assignmentId and answer are required",
+      });
+    }
+
+    // Caller can only submit for themselves
+    if (req.user!.userId !== Number(userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only submit answers for yourself",
       });
     }
 
@@ -222,12 +264,8 @@ router.post("/evaluate-answer", async (req, res) => {
         a.description,
         a.questions,
         s.name AS skill_name
-
       FROM assignments a
-
-      INNER JOIN skills s
-        ON s.id = a.skill_id
-
+      INNER JOIN skills s ON s.id = a.skill_id
       WHERE a.id = $1
       `,
       [assignmentId]
@@ -242,84 +280,79 @@ router.post("/evaluate-answer", async (req, res) => {
 
     const assignment = assignmentResult.rows[0];
 
-    // ------------------------------------------
-    // GET QUESTION
-    // ------------------------------------------
-
-    const question =
-      assignment.questions?.question || "";
-
-    const expectedConcepts =
-      assignment.questions?.expectedConcepts || [];
+    const question = assignment.questions?.question || "";
+    const expectedConcepts = assignment.questions?.expectedConcepts || [];
 
     // ------------------------------------------
-    // ASK GEMINI TO EVALUATE
+    // BUILD EVALUATION PROMPT
     // ------------------------------------------
 
     const prompt = `
-You are an AI evaluator for a student learning platform called SkillVerse.
+You are an AI evaluator for SkillVerse, a student learning platform.
 
-Evaluate the student's answer fairly.
+Evaluate the student's answer fairly and constructively.
 
-Assignment:
-${assignment.title}
+Assignment: ${assignment.title}
+Skill: ${assignment.skill_name}
+Question: ${question}
+Expected concepts: ${JSON.stringify(expectedConcepts)}
 
-Skill:
-${assignment.skill_name}
-
-Question:
-${question}
-
-Expected concepts:
-${JSON.stringify(expectedConcepts)}
-
-Student answer:
+Student's answer:
 ${answer}
 
-Return ONLY valid JSON in this exact format:
-
+Return ONLY valid JSON with no markdown fences in this exact format:
 {
   "score": 0,
-  "feedback": "short useful feedback",
-  "strengths": [
-    "strength 1"
-  ],
-  "improvements": [
-    "improvement 1"
-  ],
+  "feedback": "short, useful feedback in 1-3 sentences",
+  "strengths": ["strength 1", "strength 2"],
+  "improvements": ["improvement 1"],
   "passed": false
 }
 
 Rules:
-
-- Score must be an integer from 0 to 100.
-- Judge based on correctness and understanding.
-- Do not require exact wording.
+- score is an integer from 0 to 100.
+- Judge based on understanding and correctness, not exact wording.
 - Give partial credit when appropriate.
 - Be encouraging but honest.
-- passed should be true if score >= 60.
-- No markdown.
+- passed = true if score >= 60.
+- No markdown in the output.
 `;
 
+    // ------------------------------------------
+    // CALL GEMINI
+    // ------------------------------------------
+
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: GEMINI_MODEL,
       contents: prompt,
     });
 
-    const text = response.text || "";
+    const rawText = response.text || "";
 
-    const cleanText = text
-      .replace(/```json/g, "")
+    const cleanText = rawText
+      .replace(/```json/gi, "")
       .replace(/```/g, "")
       .trim();
 
-    const evaluation = JSON.parse(cleanText);
+    let evaluation: {
+      score: number;
+      feedback: string;
+      strengths: string[];
+      improvements: string[];
+      passed: boolean;
+    };
 
-    const score = Math.max(
-      0,
-      Math.min(100, Number(evaluation.score))
-    );
+    try {
+      evaluation = JSON.parse(cleanText);
+    } catch {
+      console.error("Gemini returned invalid JSON:", cleanText);
+      return res.status(502).json({
+        success: false,
+        message: "AI returned an invalid response. Please try again.",
+      });
+    }
 
+    const score = Math.max(0, Math.min(100, Number(evaluation.score)));
     const passed = score >= 60;
 
     // ------------------------------------------
@@ -337,21 +370,13 @@ Rules:
         completed
       )
       VALUES ($1, $2, $3, $4, $5, $6)
-
       RETURNING *
       `,
-      [
-        userId,
-        assignmentId,
-        answer,
-        score,
-        evaluation.feedback,
-        passed,
-      ]
+      [userId, assignmentId, answer, score, evaluation.feedback, passed]
     );
 
     // ------------------------------------------
-    // CALCULATE USER SKILL PROGRESS
+    // RECALCULATE SKILL PROGRESS
     // ------------------------------------------
 
     const skillId = assignment.skill_id;
@@ -359,32 +384,21 @@ Rules:
     const progressResult = await pool.query(
       `
       SELECT
-        COUNT(*)::INTEGER AS total,
-        COALESCE(AVG(ai_score), 0)::INTEGER AS average_score
-
+        COUNT(*)::INTEGER          AS total,
+        COALESCE(AVG(s.ai_score), 0)::INTEGER AS average_score
       FROM assignment_submissions s
-
-      INNER JOIN assignments a
-        ON a.id = s.assignment_id
-
+      INNER JOIN assignments a ON a.id = s.assignment_id
       WHERE s.user_id = $1
-      AND a.skill_id = $2
+        AND a.skill_id = $2
       `,
       [userId, skillId]
     );
 
-    const total =
-      progressResult.rows[0].total;
+    const total = progressResult.rows[0].total;
+    const averageScore = progressResult.rows[0].average_score;
 
-    const averageScore =
-      progressResult.rows[0].average_score;
-
-    // ------------------------------------------
-    // DETERMINE LEVEL
-    // ------------------------------------------
-
+    // Determine level based on average score and attempt count
     let level = "Beginner";
-
     if (averageScore >= 80 && total >= 3) {
       level = "Advanced";
     } else if (averageScore >= 60 && total >= 2) {
@@ -392,36 +406,23 @@ Rules:
     }
 
     // ------------------------------------------
-    // UPDATE USER SKILL
+    // UPDATE USER SKILL RECORD
     // ------------------------------------------
 
     await pool.query(
       `
       UPDATE user_skills
-
       SET
-        progress = $1,
-        score = $2,
-        level = $3,
+        progress              = $1,
+        score                 = $2,
+        level                 = $3,
         assignments_completed = $4,
-        updated_at = CURRENT_TIMESTAMP
-
+        updated_at            = CURRENT_TIMESTAMP
       WHERE user_id = $5
-      AND skill_id = $6
+        AND skill_id = $6
       `,
-      [
-        averageScore,
-        averageScore,
-        level,
-        total,
-        userId,
-        skillId,
-      ]
+      [averageScore, averageScore, level, total, userId, skillId]
     );
-
-    // ------------------------------------------
-    // RETURN RESULT
-    // ------------------------------------------
 
     return res.json({
       success: true,
@@ -445,19 +446,14 @@ Rules:
     });
 
   } catch (error) {
-    console.error(
-      "Evaluate answer error:",
-      error
-    );
+    console.error("Evaluate answer error:", error);
 
     return res.status(500).json({
       success: false,
       message: "Failed to evaluate answer",
-      error:
-        error instanceof Error
-          ? error.message
-          : String(error),
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });
+
 export default router;

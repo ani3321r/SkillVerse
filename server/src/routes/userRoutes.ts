@@ -1,13 +1,15 @@
 import express from "express";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
-router.post("/profile", async (req, res) => {
-  try {
-    console.log("PROFILE ROUTE HIT");
-    console.log("Received:", req.body);
+// ============================================
+// CREATE / UPDATE PROFILE  (protected)
+// ============================================
 
+router.post("/profile", requireAuth, async (req, res) => {
+  try {
     const {
       googleId,
       name,
@@ -22,6 +24,14 @@ router.post("/profile", async (req, res) => {
       portfolioUrl,
       avatarUrl,
     } = req.body;
+
+    // Only allow a user to update their own profile
+    if (req.user!.email !== email) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update your own profile",
+      });
+    }
 
     if (
       !name ||
@@ -50,18 +60,18 @@ router.post("/profile", async (req, res) => {
         `
         UPDATE users
         SET
-          google_id = $1,
-          name = $2,
-          college = $3,
-          department = $4,
-          year = $5,
-          location = $6,
-          interest = $7,
-          github_url = $8,
-          linkedin_url = $9,
+          google_id     = COALESCE($1, google_id),
+          name          = $2,
+          college       = $3,
+          department    = $4,
+          year          = $5,
+          location      = $6,
+          interest      = $7,
+          github_url    = $8,
+          linkedin_url  = $9,
           portfolio_url = $10,
-          avatar_url = $11,
-          updated_at = CURRENT_TIMESTAMP
+          avatar_url    = COALESCE($11, avatar_url),
+          updated_at    = CURRENT_TIMESTAMP
         WHERE id = $12
         RETURNING *
         `,
@@ -88,26 +98,15 @@ router.post("/profile", async (req, res) => {
       });
     }
 
+    // Create if somehow the user doesn't exist yet
     const result = await pool.query(
       `
       INSERT INTO users (
-        google_id,
-        name,
-        email,
-        college,
-        department,
-        year,
-        location,
-        interest,
-        github_url,
-        linkedin_url,
-        portfolio_url,
-        avatar_url
+        google_id, name, email, college, department,
+        year, location, interest,
+        github_url, linkedin_url, portfolio_url, avatar_url
       )
-      VALUES (
-        $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11, $12
-      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
       `,
       [
@@ -131,8 +130,9 @@ router.post("/profile", async (req, res) => {
       message: "Profile created successfully",
       user: result.rows[0],
     });
+
   } catch (error) {
-    console.error("Create profile error:", error);
+    console.error("Profile save error:", error);
 
     return res.status(500).json({
       success: false,
@@ -140,20 +140,27 @@ router.post("/profile", async (req, res) => {
     });
   }
 });
+
 // ============================================
-// GET USER PROFILE
+// GET PROFILE BY EMAIL  (protected)
 // ============================================
 
-router.get("/profile", async (req, res) => {
+router.get("/profile", requireAuth, async (req, res) => {
   try {
     const email = req.query.email as string;
-
-    console.log("GET PROFILE:", email);
 
     if (!email) {
       return res.status(400).json({
         success: false,
         message: "Email is required",
+      });
+    }
+
+    // Users can only fetch their own profile via this route
+    if (req.user!.email !== email) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only view your own profile via this route",
       });
     }
 
@@ -198,6 +205,67 @@ router.get("/profile", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to get profile",
+    });
+  }
+});
+
+// ============================================
+// GET USER BY ID  (protected)
+// Used by dashboard, student profile, etc.
+// ============================================
+
+router.get("/:id", requireAuth, async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+
+    if (!userId || isNaN(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        name,
+        email,
+        college,
+        department,
+        year,
+        location,
+        interest,
+        github_url,
+        linkedin_url,
+        portfolio_url,
+        avatar_url,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = $1
+      `,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error("Get user by ID error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get user",
     });
   }
 });

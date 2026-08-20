@@ -1,8 +1,15 @@
 -- ============================================
--- SKILLVERSE DATABASE
+-- SKILLVERSE DATABASE SCHEMA
+-- Run this file to set up the full database.
+-- All statements use IF NOT EXISTS / ON CONFLICT
+-- so it is safe to run multiple times.
 -- ============================================
 
+
+-- ============================================
 -- USERS
+-- ============================================
+
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
 
@@ -76,6 +83,10 @@ CREATE TABLE IF NOT EXISTS user_skills (
         CHECK (score >= 0 AND score <= 100),
 
     level VARCHAR(30) DEFAULT 'Beginner',
+
+    assignments_completed INTEGER DEFAULT 0,
+
+    tests_completed INTEGER DEFAULT 0,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -151,37 +162,41 @@ CREATE TABLE IF NOT EXISTS assignments (
 
     difficulty VARCHAR(50),
 
+    -- Stores JSON: { question, expectedConcepts[] }
+    questions JSONB,
+
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-INSERT INTO skills (name, category, description)
-VALUES
-('JavaScript', 'Software', 'JavaScript programming and web development'),
 
-('React', 'Software', 'React frontend development'),
 
-('Node.js', 'Software', 'Backend development using Node.js'),
+-- ============================================
+-- ASSIGNMENT SUBMISSIONS
+-- ============================================
 
-('Python', 'Software', 'Python programming and development'),
+CREATE TABLE IF NOT EXISTS assignment_submissions (
+    id SERIAL PRIMARY KEY,
 
-('Java', 'Software', 'Java programming'),
+    user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
 
-('C++', 'Software', 'C++ programming and problem solving'),
+    assignment_id INTEGER NOT NULL
+        REFERENCES assignments(id)
+        ON DELETE CASCADE,
 
-('Data Structures', 'Software', 'Data structures and algorithms'),
+    answer TEXT NOT NULL,
 
-('Machine Learning', 'Software', 'Machine learning and AI'),
+    ai_score INTEGER DEFAULT 0
+        CHECK (ai_score >= 0 AND ai_score <= 100),
 
-('UI/UX Design', 'Software', 'User interface and experience design'),
+    ai_feedback TEXT,
 
-('Cybersecurity', 'Software', 'Cybersecurity fundamentals'),
+    completed BOOLEAN DEFAULT false,
 
-('Arduino', 'Hardware', 'Arduino and embedded development'),
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-('ESP32', 'Hardware', 'ESP32 IoT development'),
 
-('Robotics', 'Hardware', 'Robotics and automation')
-
-ON CONFLICT (name) DO NOTHING;
 -- ============================================
 -- HACKATHONS
 -- ============================================
@@ -217,6 +232,71 @@ CREATE TABLE IF NOT EXISTS hackathons (
 
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+-- ============================================
+-- POSTS (SOCIAL FEED)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS posts (
+    id SERIAL PRIMARY KEY,
+
+    user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    content TEXT NOT NULL,
+
+    image_url TEXT,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- ============================================
+-- POST LIKES
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS post_likes (
+    id SERIAL PRIMARY KEY,
+
+    post_id INTEGER NOT NULL
+        REFERENCES posts(id)
+        ON DELETE CASCADE,
+
+    user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(post_id, user_id)
+);
+
+
+-- ============================================
+-- POST COMMENTS
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS post_comments (
+    id SERIAL PRIMARY KEY,
+
+    post_id INTEGER NOT NULL
+        REFERENCES posts(id)
+        ON DELETE CASCADE,
+
+    user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    comment TEXT NOT NULL,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
 -- ============================================
 -- CHAT CONVERSATIONS
 -- ============================================
@@ -276,17 +356,101 @@ CREATE TABLE IF NOT EXISTS messages (
 -- INDEXES
 -- ============================================
 
+CREATE INDEX IF NOT EXISTS idx_user_skills_user
+ON user_skills(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_skills_skill
+ON user_skills(skill_id);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_submissions_user
+ON assignment_submissions(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_submissions_assignment
+ON assignment_submissions(assignment_id);
+
+CREATE INDEX IF NOT EXISTS idx_posts_user
+ON posts(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_posts_created_at
+ON posts(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_post_likes_post
+ON post_likes(post_id);
+
+CREATE INDEX IF NOT EXISTS idx_post_comments_post
+ON post_comments(post_id);
+
 CREATE INDEX IF NOT EXISTS idx_conversation_members_user
 ON conversation_members(user_id);
-
 
 CREATE INDEX IF NOT EXISTS idx_conversation_members_conversation
 ON conversation_members(conversation_id);
 
-
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
 ON messages(conversation_id);
 
-
 CREATE INDEX IF NOT EXISTS idx_messages_created_at
 ON messages(created_at);
+
+
+-- ============================================
+-- SEED SKILLS
+-- ============================================
+
+INSERT INTO skills (name, category, description)
+VALUES
+    ('JavaScript',      'Software', 'JavaScript programming and web development'),
+    ('React',           'Software', 'React frontend development'),
+    ('Node.js',         'Software', 'Backend development using Node.js'),
+    ('Python',          'Software', 'Python programming and development'),
+    ('Java',            'Software', 'Java programming'),
+    ('C++',             'Software', 'C++ programming and problem solving'),
+    ('Data Structures', 'Software', 'Data structures and algorithms'),
+    ('Machine Learning','Software', 'Machine learning and AI'),
+    ('UI/UX Design',    'Software', 'User interface and experience design'),
+    ('Cybersecurity',   'Software', 'Cybersecurity fundamentals'),
+    ('Arduino',         'Hardware', 'Arduino and embedded development'),
+    ('ESP32',           'Hardware', 'ESP32 IoT development'),
+    ('Robotics',        'Hardware', 'Robotics and automation')
+ON CONFLICT (name) DO NOTHING;
+
+
+-- ============================================
+-- MIGRATION HELPERS
+-- Add new columns to existing databases that
+-- were created before these columns existed.
+-- These are safe to run even if columns exist.
+-- ============================================
+
+DO $$
+BEGIN
+    -- user_skills.assignments_completed
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_skills'
+          AND column_name = 'assignments_completed'
+    ) THEN
+        ALTER TABLE user_skills
+        ADD COLUMN assignments_completed INTEGER DEFAULT 0;
+    END IF;
+
+    -- user_skills.tests_completed
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_skills'
+          AND column_name = 'tests_completed'
+    ) THEN
+        ALTER TABLE user_skills
+        ADD COLUMN tests_completed INTEGER DEFAULT 0;
+    END IF;
+
+    -- assignments.questions
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'assignments'
+          AND column_name = 'questions'
+    ) THEN
+        ALTER TABLE assignments
+        ADD COLUMN questions JSONB;
+    END IF;
+END $$;

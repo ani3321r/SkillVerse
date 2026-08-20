@@ -1,10 +1,11 @@
 import express from "express";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
 // ============================================
-// GET ALL SKILLS
+// GET ALL SKILLS  (public — anyone can browse)
 // ============================================
 
 router.get("/", async (req, res) => {
@@ -36,12 +37,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 // ============================================
-// ADD SKILL TO USER
+// ADD SKILL TO USER  (protected)
 // ============================================
 
-router.post("/user", async (req, res) => {
+router.post("/user", requireAuth, async (req, res) => {
   try {
     const { userId, skillId } = req.body;
 
@@ -52,18 +52,20 @@ router.post("/user", async (req, res) => {
       });
     }
 
+    // Users can only add skills to their own profile
+    if (req.user!.userId !== Number(userId)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only add skills to your own profile",
+      });
+    }
+
     const result = await pool.query(
       `
-      INSERT INTO user_skills (
-        user_id,
-        skill_id
-      )
+      INSERT INTO user_skills (user_id, skill_id)
       VALUES ($1, $2)
-
       ON CONFLICT (user_id, skill_id)
-      DO UPDATE SET
-        updated_at = CURRENT_TIMESTAMP
-
+      DO UPDATE SET updated_at = CURRENT_TIMESTAMP
       RETURNING *
       `,
       [userId, skillId]
@@ -85,16 +87,15 @@ router.post("/user", async (req, res) => {
   }
 });
 
-
 // ============================================
-// GET USER SKILLS
+// GET USER SKILLS  (protected)
 // ============================================
 
-router.get("/user/:userId", async (req, res) => {
+router.get("/user/:userId", requireAuth, async (req, res) => {
   try {
     const userId = Number(req.params.userId);
 
-    if (!userId) {
+    if (!userId || isNaN(userId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID",
@@ -110,19 +111,13 @@ router.get("/user/:userId", async (req, res) => {
         us.level,
         us.assignments_completed,
         us.tests_completed,
-
-        s.id AS skill_id,
+        s.id          AS skill_id,
         s.name,
         s.category,
         s.description
-
       FROM user_skills us
-
-      INNER JOIN skills s
-        ON s.id = us.skill_id
-
+      INNER JOIN skills s ON s.id = us.skill_id
       WHERE us.user_id = $1
-
       ORDER BY us.progress DESC
       `,
       [userId]
@@ -142,6 +137,5 @@ router.get("/user/:userId", async (req, res) => {
     });
   }
 });
-
 
 export default router;

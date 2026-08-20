@@ -1,13 +1,14 @@
 import express from "express";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
 // ============================================
-// DISCOVER STUDENTS
+// DISCOVER STUDENTS  (protected)
 // ============================================
 
-router.get("/", async (req, res) => {
+router.get("/", requireAuth, async (req, res) => {
   try {
     const {
       search,
@@ -16,8 +17,10 @@ router.get("/", async (req, res) => {
       interest,
       year,
       location,
-      userId,
     } = req.query;
+
+    // Always exclude the requester from results
+    const currentUserId = req.user!.userId;
 
     let query = `
       SELECT
@@ -34,43 +37,24 @@ router.get("/", async (req, res) => {
         portfolio_url,
         avatar_url
       FROM users
-      WHERE 1 = 1
+      WHERE id != $1
     `;
 
-    const values: any[] = [];
-    let index = 1;
-
-    // ==========================================
-    // EXCLUDE CURRENT USER
-    // ==========================================
-
-    if (userId) {
-      query += ` AND id != $${index}`;
-      values.push(Number(userId));
-      index++;
-    }
-
-    // ==========================================
-    // SEARCH
-    // ==========================================
+    const values: (string | number)[] = [currentUserId];
+    let index = 2;
 
     if (search) {
       query += `
         AND (
-          name ILIKE $${index}
-          OR college ILIKE $${index}
+          name       ILIKE $${index}
+          OR college    ILIKE $${index}
           OR department ILIKE $${index}
-          OR location ILIKE $${index}
+          OR location   ILIKE $${index}
         )
       `;
-
       values.push(`%${search}%`);
       index++;
     }
-
-    // ==========================================
-    // COLLEGE FILTER
-    // ==========================================
 
     if (college) {
       query += ` AND college ILIKE $${index}`;
@@ -78,29 +62,17 @@ router.get("/", async (req, res) => {
       index++;
     }
 
-    // ==========================================
-    // DEPARTMENT FILTER
-    // ==========================================
-
     if (department) {
       query += ` AND department ILIKE $${index}`;
       values.push(`%${department}%`);
       index++;
     }
 
-    // ==========================================
-    // INTEREST FILTER
-    // ==========================================
-
     if (interest) {
       query += ` AND interest = $${index}`;
-      values.push(interest);
+      values.push(String(interest));
       index++;
     }
-
-    // ==========================================
-    // YEAR FILTER
-    // ==========================================
 
     if (year) {
       query += ` AND year ILIKE $${index}`;
@@ -108,24 +80,13 @@ router.get("/", async (req, res) => {
       index++;
     }
 
-    // ==========================================
-    // LOCATION FILTER
-    // ==========================================
-
     if (location) {
       query += ` AND location ILIKE $${index}`;
       values.push(`%${location}%`);
       index++;
     }
 
-    // ==========================================
-    // ORDER
-    // ==========================================
-
-    query += `
-      ORDER BY created_at DESC
-      LIMIT 50
-    `;
+    query += ` ORDER BY created_at DESC LIMIT 50`;
 
     const result = await pool.query(query, values);
 

@@ -1,13 +1,14 @@
 import express from "express";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
-// ==========================================
-// GET ALL STUDENTS
-// ==========================================
+// ============================================
+// GET ALL STUDENTS  (protected)
+// ============================================
 
-router.get("/", async (req, res) => {
+router.get("/", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -19,31 +20,19 @@ router.get("/", async (req, res) => {
         u.year,
         u.location,
         u.interest,
-
+        u.avatar_url,
         COALESCE(
           ARRAY_AGG(DISTINCT s.name)
           FILTER (WHERE s.name IS NOT NULL),
           '{}'
         ) AS skills
-
       FROM users u
-
-      LEFT JOIN user_skills us
-        ON us.user_id = u.id
-
-      LEFT JOIN skills s
-        ON s.id = us.skill_id
-
+      LEFT JOIN user_skills us ON us.user_id = u.id
+      LEFT JOIN skills s ON s.id = us.skill_id
       GROUP BY
-        u.id,
-        u.name,
-        u.email,
-        u.college,
-        u.department,
-        u.year,
-        u.location,
-        u.interest
-
+        u.id, u.name, u.email, u.college,
+        u.department, u.year, u.location,
+        u.interest, u.avatar_url
       ORDER BY u.name ASC
     `);
 
@@ -62,20 +51,16 @@ router.get("/", async (req, res) => {
   }
 });
 
+// ============================================
+// SEARCH STUDENTS  (protected)
+// ============================================
 
-// ==========================================
-// SEARCH STUDENTS
-// ==========================================
-
-router.get("/search", async (req, res) => {
+router.get("/search", requireAuth, async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
 
     if (!q) {
-      return res.json({
-        success: true,
-        students: [],
-      });
+      return res.json({ success: true, students: [] });
     }
 
     const search = `%${q}%`;
@@ -91,39 +76,26 @@ router.get("/search", async (req, res) => {
         u.year,
         u.location,
         u.interest,
-
+        u.avatar_url,
         COALESCE(
           ARRAY_AGG(DISTINCT s.name)
           FILTER (WHERE s.name IS NOT NULL),
           '{}'
         ) AS skills
-
       FROM users u
-
-      LEFT JOIN user_skills us
-        ON us.user_id = u.id
-
-      LEFT JOIN skills s
-        ON s.id = us.skill_id
-
+      LEFT JOIN user_skills us ON us.user_id = u.id
+      LEFT JOIN skills s ON s.id = us.skill_id
       WHERE
-        u.name ILIKE $1
-        OR u.college ILIKE $1
+        u.name       ILIKE $1
+        OR u.college    ILIKE $1
         OR u.department ILIKE $1
-        OR u.location ILIKE $1
-        OR u.interest ILIKE $1
-        OR s.name ILIKE $1
-
+        OR u.location   ILIKE $1
+        OR u.interest   ILIKE $1
+        OR s.name       ILIKE $1
       GROUP BY
-        u.id,
-        u.name,
-        u.email,
-        u.college,
-        u.department,
-        u.year,
-        u.location,
-        u.interest
-
+        u.id, u.name, u.email, u.college,
+        u.department, u.year, u.location,
+        u.interest, u.avatar_url
       ORDER BY u.name ASC
       `,
       [search]
@@ -144,25 +116,20 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// ============================================
+// GET SINGLE STUDENT  (protected)
+// ============================================
 
-// ==========================================
-// GET SINGLE STUDENT
-// ==========================================
-
-router.get("/:id", async (req, res) => {
+router.get("/:id", requireAuth, async (req, res) => {
   try {
     const studentId = Number(req.params.id);
 
-    if (!studentId) {
+    if (!studentId || isNaN(studentId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid student ID",
       });
     }
-
-    // --------------------------------------
-    // Student information
-    // --------------------------------------
 
     const userResult = await pool.query(
       `
@@ -174,7 +141,11 @@ router.get("/:id", async (req, res) => {
         department,
         year,
         location,
-        interest
+        interest,
+        github_url,
+        linkedin_url,
+        portfolio_url,
+        avatar_url
       FROM users
       WHERE id = $1
       `,
@@ -188,10 +159,6 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    // --------------------------------------
-    // Student skills
-    // --------------------------------------
-
     const skillsResult = await pool.query(
       `
       SELECT
@@ -204,14 +171,9 @@ router.get("/:id", async (req, res) => {
         us.level,
         us.assignments_completed,
         us.tests_completed
-
       FROM user_skills us
-
-      INNER JOIN skills s
-        ON s.id = us.skill_id
-
+      INNER JOIN skills s ON s.id = us.skill_id
       WHERE us.user_id = $1
-
       ORDER BY us.progress DESC
       `,
       [studentId]
@@ -219,9 +181,7 @@ router.get("/:id", async (req, res) => {
 
     return res.json({
       success: true,
-
       student: userResult.rows[0],
-
       skills: skillsResult.rows,
     });
 
@@ -234,6 +194,5 @@ router.get("/:id", async (req, res) => {
     });
   }
 });
-
 
 export default router;

@@ -1,10 +1,11 @@
 import express from "express";
 import { pool } from "../config/database";
+import { signToken } from "../middleware/auth";
 
 const router = express.Router();
 
 // ============================================
-// GOOGLE LOGIN
+// GOOGLE LOGIN / REGISTER
 // ============================================
 
 router.post("/google", async (req, res) => {
@@ -28,7 +29,9 @@ router.post("/google", async (req, res) => {
     }
 
     // ==========================================
-    // CHECK EXISTING USER
+    // LOOK UP BY google_id OR email
+    // (handles the case where a user registered
+    // by email first, then tries Google login)
     // ==========================================
 
     const existingUser = await pool.query(
@@ -48,9 +51,11 @@ router.post("/google", async (req, res) => {
         portfolio_url,
         avatar_url
       FROM users
-      WHERE email = $1
+      WHERE google_id = $1
+        OR email = $2
+      LIMIT 1
       `,
-      [email]
+      [googleId, email]
     );
 
     // ==========================================
@@ -58,16 +63,44 @@ router.post("/google", async (req, res) => {
     // ==========================================
 
     if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+
+      // Backfill google_id if the account was
+      // created before Google login existed.
+      if (!user.google_id) {
+        await pool.query(
+          `
+          UPDATE users
+          SET
+            google_id = $1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          `,
+          [googleId, user.id]
+        );
+
+        user.google_id = googleId;
+      }
+
+      const token = signToken({
+        userId: user.id,
+        email: user.email,
+      });
+
       return res.json({
         success: true,
         isNewUser: false,
         message: "Login successful",
-        user: existingUser.rows[0],
+        token,
+        user,
       });
     }
 
     // ==========================================
     // CREATE NEW USER
+    // Placeholder values for required fields —
+    // the client will send the user to
+    // /setup-profile to fill these in.
     // ==========================================
 
     const newUser = await pool.query(
@@ -83,17 +116,7 @@ router.post("/google", async (req, res) => {
         interest,
         avatar_url
       )
-      VALUES (
-        $1,
-        $2,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8,
-        $9
-      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING
         id,
         google_id,
@@ -122,19 +145,23 @@ router.post("/google", async (req, res) => {
       ]
     );
 
+    const user = newUser.rows[0];
+
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+    });
+
     return res.status(201).json({
       success: true,
       isNewUser: true,
       message: "Account created successfully",
-      user: newUser.rows[0],
+      token,
+      user,
     });
 
   } catch (error: any) {
-
-    console.error(
-      "Google authentication error:",
-      error
-    );
+    console.error("Google authentication error:", error);
 
     return res.status(500).json({
       success: false,

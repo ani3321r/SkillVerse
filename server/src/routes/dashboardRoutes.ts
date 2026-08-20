@@ -1,24 +1,23 @@
 import express from "express";
 import { pool } from "../config/database";
+import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
+// ============================================
+// GET DASHBOARD  (protected)
+// ============================================
 
-// ==========================================
-// GET DASHBOARD
-// ==========================================
-
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", requireAuth, async (req, res) => {
   try {
     const userId = Number(req.params.userId);
 
-    if (!userId) {
+    if (!userId || isNaN(userId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID",
       });
     }
-
 
     // ==========================================
     // GET USER
@@ -34,13 +33,13 @@ router.get("/:userId", async (req, res) => {
         department,
         year,
         location,
-        interest
+        interest,
+        avatar_url
       FROM users
       WHERE id = $1
       `,
       [userId]
     );
-
 
     if (userResult.rows.length === 0) {
       return res.status(404).json({
@@ -48,7 +47,6 @@ router.get("/:userId", async (req, res) => {
         message: "User not found",
       });
     }
-
 
     // ==========================================
     // GET USER SKILLS
@@ -66,17 +64,15 @@ router.get("/:userId", async (req, res) => {
         us.level,
         us.assignments_completed
       FROM user_skills us
-      JOIN skills s
-        ON s.id = us.skill_id
+      JOIN skills s ON s.id = us.skill_id
       WHERE us.user_id = $1
       ORDER BY us.progress DESC
       `,
       [userId]
     );
 
-
     // ==========================================
-    // TOTAL ASSIGNMENTS
+    // TOTAL ASSIGNMENTS COMPLETED
     // ==========================================
 
     const assignmentsResult = await pool.query(
@@ -84,31 +80,24 @@ router.get("/:userId", async (req, res) => {
       SELECT COUNT(*)::int AS total
       FROM assignment_submissions
       WHERE user_id = $1
+        AND completed = true
       `,
       [userId]
     );
 
-
     // ==========================================
-    // OVERALL PROGRESS
+    // OVERALL PROGRESS (average across skills)
     // ==========================================
 
     let overallProgress = 0;
 
     if (skillsResult.rows.length > 0) {
-
-      const totalProgress =
-        skillsResult.rows.reduce(
-          (sum, skill) =>
-            sum + Number(skill.progress || 0),
-          0
-        );
-
-      overallProgress = Math.round(
-        totalProgress / skillsResult.rows.length
+      const totalProgress = skillsResult.rows.reduce(
+        (sum, skill) => sum + Number(skill.progress || 0),
+        0
       );
+      overallProgress = Math.round(totalProgress / skillsResult.rows.length);
     }
-
 
     return res.json({
       success: true,
@@ -118,20 +107,14 @@ router.get("/:userId", async (req, res) => {
       stats: {
         verifiedSkills: skillsResult.rows.length,
         overallProgress,
-        assignments: Number(
-          assignmentsResult.rows[0].total
-        ),
+        assignments: Number(assignmentsResult.rows[0].total),
       },
 
       skills: skillsResult.rows,
     });
 
   } catch (error) {
-
-    console.error(
-      "Dashboard error:",
-      error
-    );
+    console.error("Dashboard error:", error);
 
     return res.status(500).json({
       success: false,
@@ -139,6 +122,5 @@ router.get("/:userId", async (req, res) => {
     });
   }
 });
-
 
 export default router;
