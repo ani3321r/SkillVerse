@@ -1,11 +1,20 @@
 /**
- * AI Integration Test
- * Tests the full assignment lifecycle:
- *   1. Generate assignment (Gemini)
- *   2. Submit a GOOD answer   → expect high score
- *   3. Submit a BAD answer    → expect low score
- *   4. Submit a PARTIAL answer → expect mid score
- *   5. Verify skill progress updated in DB
+ * AI Progression Test
+ *
+ * Simulates a student going through the full progression system:
+ *
+ *   Round 1 → Beginner assignment  (should be generated at Beginner)
+ *   Round 2 → Beginner assignment  (still Beginner — only 1 pass so far)
+ *   Round 3 → STILL Beginner       (2nd pass → should unlock Intermediate)
+ *   Round 4 → Intermediate         (first Intermediate assignment)
+ *   ...
+ *
+ * Checks:
+ *   ✔ Server controls difficulty (client never passes it)
+ *   ✔ Difficulty stays Beginner until PASSES_TO_INTERMEDIATE passes
+ *   ✔ Intermediate unlocked exactly after the qualifying pass
+ *   ✔ Level-up flag and message returned in evaluate-answer response
+ *   ✔ skill-status endpoint returns correct state at every step
  *
  * Run with:
  *   npx tsx test-ai.ts
@@ -14,302 +23,305 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { GoogleGenAI } from "@google/genai";
 import { pool } from "./src/config/database";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const GEMINI_MODEL = "gemini-3.6-flash";
+const API  = "http://localhost:5000";
 
 // ============================================
-// COLOUR HELPERS
+// COLOURS
 // ============================================
 const C = {
-  reset:  "\x1b[0m",
-  bold:   "\x1b[1m",
-  green:  "\x1b[32m",
-  red:    "\x1b[31m",
-  yellow: "\x1b[33m",
-  cyan:   "\x1b[36m",
-  blue:   "\x1b[34m",
-  dim:    "\x1b[2m",
+  reset:  "\x1b[0m", bold: "\x1b[1m",
+  green:  "\x1b[32m", red: "\x1b[31m",
+  yellow: "\x1b[33m", cyan: "\x1b[36m",
+  blue:   "\x1b[34m", dim:  "\x1b[2m",
+};
+const ok   = (t: string) => console.log(`${C.green}  ✔ ${t}${C.reset}`);
+const fail = (t: string) => console.log(`${C.red}  ✘ ${t}${C.reset}`);
+const info = (t: string) => console.log(`${C.dim}    ${t}${C.reset}`);
+const head = (t: string) => {
+  console.log(`\n${C.bold}${C.cyan}${"─".repeat(62)}`);
+  console.log(`  ${t}`);
+  console.log(`${"─".repeat(62)}${C.reset}`);
 };
 
-function header(text: string) {
-  console.log(`\n${C.bold}${C.cyan}${"─".repeat(60)}`);
-  console.log(` ${text}`);
-  console.log(`${"─".repeat(60)}${C.reset}`);
-}
-function ok(text: string)    { console.log(`${C.green}  ✔ ${text}${C.reset}`); }
-function warn(text: string)  { console.log(`${C.yellow}  ⚠ ${text}${C.reset}`); }
-function info(text: string)  { console.log(`${C.dim}    ${text}${C.reset}`); }
-
 // ============================================
-// GEMINI WRAPPER WITH RETRY
-// Handles 429 rate-limit by waiting and retrying
+// API HELPERS  (calls the live server)
 // ============================================
-async function geminiCall(prompt: string, retries = 3): Promise<string> {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-      });
-      return (response.text ?? "").replace(/```json/gi, "").replace(/```/g, "").trim();
-    } catch (e: any) {
-      const body = typeof e.message === "string" ? e.message : JSON.stringify(e);
-      const is429 = body.includes("429") || body.includes("RESOURCE_EXHAUSTED");
-      const retryMatch = body.match(/retryDelay.*?(\d+)s/);
-      const waitSec = retryMatch ? Number(retryMatch[1]) + 2 : 62;
 
-      if (is429 && attempt < retries) {
-        warn(`Rate limit hit (attempt ${attempt}/${retries}). Waiting ${waitSec}s before retry...`);
-        await new Promise(r => setTimeout(r, waitSec * 1000));
-        continue;
-      }
-
-      // Daily quota exhausted — not retryable today
-      if (is429 && body.includes("PerDay")) {
-        console.log(`\n${C.yellow}  ⚠ Daily free-tier quota exhausted (20 req/day on free plan).`);
-        console.log(`    The assignment was generated successfully in Step 1.`);
-        console.log(`    The API key works — just wait until tomorrow or upgrade your Gemini plan.`);
-        console.log(`    Free tier: https://ai.google.dev/gemini-api/docs/rate-limits${C.reset}\n`);
-        throw new Error("DAILY_QUOTA_EXHAUSTED");
-      }
-
-      throw e;
-    }
-  }
-  throw new Error("Max retries exceeded");
-}
-
-// ============================================
-// STEP 1 — GENERATE ASSIGNMENT
-// ============================================
-async function generateAssignment(
-  skillId: number,
-  skillName: string,
-  difficulty: string
-) {
-  header(`GENERATE ASSIGNMENT  [${skillName} / ${difficulty}]`);
-
-  const prompt = `
-You are an educational AI for SkillVerse.
-Create one practical assignment for a college student.
-Skill: ${skillName}
-Difficulty: ${difficulty}
-Return ONLY valid JSON with no markdown fences:
-{
-  "title": "assignment title",
-  "description": "brief explanation",
-  "question": "the specific question or task",
-  "expectedConcepts": ["concept 1", "concept 2", "concept 3"]
-}`;
-
-  const raw = await geminiCall(prompt);
-  const assignment = JSON.parse(raw);
-
-  info(`Title    : ${assignment.title}`);
-  info(`Question : ${assignment.question}`);
-  info(`Concepts : ${assignment.expectedConcepts.join(" | ")}`);
-
-  const result = await pool.query(
-    `INSERT INTO assignments (skill_id, title, description, difficulty, questions)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [skillId, assignment.title, assignment.description, difficulty,
-     JSON.stringify({ question: assignment.question, expectedConcepts: assignment.expectedConcepts })]
+async function getToken(userId: number): Promise<string> {
+  // Use the user's stored google_id to get a token via auth/google
+  const userRow = await pool.query(
+    `SELECT google_id, email, name, avatar_url FROM users WHERE id = $1`,
+    [userId]
   );
-
-  const assignmentId: number = result.rows[0].id;
-  ok(`Assignment saved → id = ${assignmentId}`);
-  return { assignmentId, assignment };
+  const u = userRow.rows[0];
+  const res = await fetch(`${API}/api/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      googleId: u.google_id ?? `test-${userId}`,
+      email:    u.email,
+      name:     u.name,
+      picture:  u.avatar_url,
+    }),
+  });
+  const data = await res.json() as any;
+  return data.token;
 }
 
-// ============================================
-// STEP 2 — EVALUATE AN ANSWER
-// ============================================
+async function getSkillStatus(token: string, userId: number, skillId: number) {
+  const res = await fetch(`${API}/api/ai/skill-status/${userId}/${skillId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json() as any;
+}
+
+async function generateAssignment(token: string, userId: number, skillId: number) {
+  const res = await fetch(`${API}/api/ai/generate-assignment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ userId, skillId }),
+  });
+  return res.json() as any;
+}
+
 async function evaluateAnswer(
+  token: string,
   userId: number,
   assignmentId: number,
-  assignment: any,
-  skillName: string,
-  skillId: number,
-  label: string,
   answer: string
 ) {
-  header(`EVALUATE: ${label}`);
-  info(`Answer: "${answer.slice(0, 100)}..."`);
-
-  const prompt = `
-You are an AI evaluator for SkillVerse.
-Evaluate the student's answer fairly.
-Assignment: ${assignment.title}
-Skill: ${skillName}
-Question: ${assignment.question}
-Expected concepts: ${JSON.stringify(assignment.expectedConcepts)}
-Student's answer: ${answer}
-Return ONLY valid JSON with no markdown fences:
-{
-  "score": 0,
-  "feedback": "1-2 sentence feedback",
-  "strengths": ["strength 1"],
-  "improvements": ["improvement 1"],
-  "passed": false
+  const res = await fetch(`${API}/api/ai/evaluate-answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ userId, assignmentId, answer }),
+  });
+  return res.json() as any;
 }
-Rules: score = integer 0–100, passed = true if score >= 60.`;
 
-  const raw = await geminiCall(prompt);
-  const evaluation = JSON.parse(raw);
-  const score  = Math.max(0, Math.min(100, Number(evaluation.score)));
-  const passed = score >= 60;
+async function nextAssignment(token: string, userId: number, skillId: number) {
+  const res = await fetch(`${API}/api/ai/next-assignment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ userId, skillId }),
+  });
+  return res.json() as any;
+}
 
-  // Save submission
-  await pool.query(
-    `INSERT INTO assignment_submissions (user_id, assignment_id, answer, ai_score, ai_feedback, completed)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, assignmentId, answer, score, evaluation.feedback, passed]
-  );
+// ============================================
+// ASSERTION HELPER
+// ============================================
+let passed = 0;
+let failed = 0;
 
-  // Recalculate skill progress
-  const prog = await pool.query(
-    `SELECT COUNT(*)::int AS total, COALESCE(AVG(ai_score),0)::int AS avg_score
-     FROM assignment_submissions s
-     JOIN assignments a ON a.id = s.assignment_id
-     WHERE s.user_id = $1 AND a.skill_id = $2`,
-    [userId, skillId]
-  );
-
-  const total    = prog.rows[0].total;
-  const avgScore = prog.rows[0].avg_score;
-  const level    = avgScore >= 80 && total >= 3 ? "Advanced"
-                 : avgScore >= 60 && total >= 2 ? "Intermediate"
-                 : "Beginner";
-
-  await pool.query(
-    `UPDATE user_skills SET progress=$1, score=$2, level=$3,
-     assignments_completed=$4, updated_at=CURRENT_TIMESTAMP
-     WHERE user_id=$5 AND skill_id=$6`,
-    [avgScore, avgScore, level, total, userId, skillId]
-  );
-
-  // Print
-  const sc = score >= 70 ? C.green : score >= 50 ? C.yellow : C.red;
-  console.log(`\n  ${C.bold}Score   :${C.reset} ${sc}${score}/100${C.reset}  ${passed ? C.green+"PASSED ✔" : C.red+"FAILED ✘"}${C.reset}`);
-  console.log(`  ${C.bold}Feedback:${C.reset} ${evaluation.feedback}`);
-  if (evaluation.strengths?.length)    { console.log(`  ${C.green}Strengths:${C.reset}`);    evaluation.strengths.forEach((s: string) => info(`+ ${s}`)); }
-  if (evaluation.improvements?.length) { console.log(`  ${C.yellow}Improvements:${C.reset}`); evaluation.improvements.forEach((s: string) => info(`→ ${s}`)); }
-  info(`DB: ${total} submission(s) | avg=${avgScore} | level=${level}`);
-
-  return { score, passed };
+function assert(label: string, condition: boolean, detail?: string) {
+  if (condition) {
+    ok(label);
+    passed++;
+  } else {
+    fail(`${label}${detail ? " — " + detail : ""}`);
+    failed++;
+  }
 }
 
 // ============================================
 // MAIN
 // ============================================
-async function main() {
-  console.log(`\n${C.bold}${C.blue}${"═".repeat(60)}`);
-  console.log("  SKILLVERSE — AI ASSIGNMENT TEST SUITE");
-  console.log(`${"═".repeat(60)}${C.reset}`);
 
-  // Get real user + skill from DB
-  const userRow = await pool.query(`SELECT id, name FROM users ORDER BY id LIMIT 1`);
+async function main() {
+  console.log(`\n${C.bold}${C.blue}${"═".repeat(62)}`);
+  console.log("  SKILLVERSE — AI PROGRESSION TEST");
+  console.log(`${"═".repeat(62)}${C.reset}`);
+
+  // ── Setup: get a real user + skill ──────────────────────────
+  const userRow = await pool.query(
+    `SELECT id, name FROM users ORDER BY id LIMIT 1`
+  );
   if (userRow.rows.length === 0) {
-    console.log(`${C.red}  No users in DB. Register via the app first.${C.reset}`);
+    fail("No users in DB. Register via the app first.");
     await pool.end(); return;
   }
   const userId   = userRow.rows[0].id as number;
   const userName = userRow.rows[0].name as string;
 
-  const skillRow = await pool.query(`SELECT id, name FROM skills ORDER BY id LIMIT 1`);
+  const skillRow = await pool.query(
+    `SELECT id, name FROM skills ORDER BY id LIMIT 1`
+  );
   const skillId   = skillRow.rows[0].id as number;
   const skillName = skillRow.rows[0].name as string;
 
-  console.log(`\n  ${C.bold}Test User :${C.reset} ${userName} (id=${userId})`);
-  console.log(`  ${C.bold}Test Skill:${C.reset} ${skillName} (id=${skillId})`);
+  console.log(`\n  ${C.bold}User :${C.reset} ${userName} (id=${userId})`);
+  console.log(`  ${C.bold}Skill:${C.reset} ${skillName} (id=${skillId})`);
 
-  // Ensure user_skills row exists
+  // ── Clean up previous test submissions for this skill ───────
   await pool.query(
-    `INSERT INTO user_skills (user_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `
+    DELETE FROM assignment_submissions
+    WHERE user_id = $1
+      AND assignment_id IN (
+        SELECT id FROM assignments WHERE skill_id = $2
+      )
+    `,
     [userId, skillId]
   );
+  await pool.query(
+    `UPDATE user_skills SET level='Beginner', progress=0, score=0,
+     assignments_completed=0 WHERE user_id=$1 AND skill_id=$2`,
+    [userId, skillId]
+  );
+  info("Cleaned previous submissions for a fresh test");
 
+  // ── Get JWT ─────────────────────────────────────────────────
+  let token: string;
   try {
-    // ── Round 1: Beginner + GOOD answer ──────────────
-    const { assignmentId: aid1, assignment: a1 } =
-      await generateAssignment(skillId, skillName, "Beginner");
-
-    const goodAnswer = `
-The question is about ${skillName}. Here is a thorough answer:
-${a1.expectedConcepts.map((c: string) =>
-  `- ${c}: This is fundamental to ${skillName}. It works by ensuring that the code correctly applies the principle of ${c}. In practice, you would use ${c} to handle edge cases, improve readability and guarantee correctness of the solution.`
-).join("\n")}
-In summary, combining ${a1.expectedConcepts.join(", ")} gives us a complete and correct solution.`.trim();
-
-    const r1 = await evaluateAnswer(userId, aid1, a1, skillName, skillId, "GOOD ANSWER (expect ≥70)", goodAnswer);
-
-    // ── Round 2: Beginner + BAD answer ───────────────
-    const { assignmentId: aid2, assignment: a2 } =
-      await generateAssignment(skillId, skillName, "Beginner");
-
-    const badAnswer = "I don't know this topic at all. No idea how to solve this.";
-    const r2 = await evaluateAnswer(userId, aid2, a2, skillName, skillId, "BAD ANSWER (expect ≤30)", badAnswer);
-
-    // ── Round 3: Intermediate + PARTIAL answer ────────
-    const { assignmentId: aid3, assignment: a3 } =
-      await generateAssignment(skillId, skillName, "Intermediate");
-
-    const partialAnswer = `I have some knowledge of ${skillName}. The main idea involves ${a3.expectedConcepts[0]}. I am less sure about the other parts but I think the answer relates to applying these concepts to the given problem.`;
-    const r3 = await evaluateAnswer(userId, aid3, a3, skillName, skillId, "PARTIAL ANSWER (expect 40–70)", partialAnswer);
-
-    // ── Summary ───────────────────────────────────────
-    header("SUMMARY");
-    console.log(`  Good answer score    : ${r1.score}/100  ${r1.passed ? C.green+"✔ PASS" : C.red+"✘ FAIL"}${C.reset}`);
-    console.log(`  Bad answer score     : ${r2.score}/100  ${r2.passed ? C.yellow+"✔ PASS (unexpected)" : C.green+"✘ FAIL (expected)"}${C.reset}`);
-    console.log(`  Partial answer score : ${r3.score}/100  ${C.cyan}(mid range)${C.reset}`);
-
-    const check1 = r1.score >= 60;
-    const check2 = r2.score <= 40;
-    const check3 = r3.score >= 30 && r3.score <= 75;
-
-    console.log(`\n  ${C.bold}Assertions:${C.reset}`);
-    console.log(`  Good answer passed   : ${check1 ? C.green+"✔ YES" : C.red+"✘ NO (score="+r1.score+")"}${C.reset}`);
-    console.log(`  Bad answer failed    : ${check2 ? C.green+"✔ YES" : C.red+"✘ NO (score="+r2.score+")"}${C.reset}`);
-    console.log(`  Partial in range     : ${check3 ? C.green+"✔ YES" : C.yellow+"⚠ NO (score="+r3.score+")"}${C.reset}`);
-
-    // Final DB state
-    header("FINAL SKILL STATE IN DB");
-    const fs = await pool.query(
-      `SELECT us.progress, us.score, us.level, us.assignments_completed, s.name
-       FROM user_skills us JOIN skills s ON s.id=us.skill_id
-       WHERE us.user_id=$1 AND us.skill_id=$2`,
-      [userId, skillId]
-    );
-    if (fs.rows.length) {
-      const row = fs.rows[0];
-      ok(`Skill       : ${row.name}`);
-      ok(`Progress    : ${row.progress}%`);
-      ok(`Avg Score   : ${row.score}`);
-      ok(`Level       : ${row.level}`);
-      ok(`Assignments : ${row.assignments_completed}`);
-    }
-
-    const subs = await pool.query(
-      `SELECT s.ai_score, s.completed, a.difficulty, a.title
-       FROM assignment_submissions s
-       JOIN assignments a ON a.id=s.assignment_id
-       WHERE s.user_id=$1 AND a.skill_id=$2 ORDER BY s.submitted_at DESC LIMIT 10`,
-      [userId, skillId]
-    );
-    console.log(`\n  ${C.bold}Recent submissions:${C.reset}`);
-    subs.rows.forEach((r: any) => {
-      const st = r.completed ? `${C.green}PASS` : `${C.red}FAIL`;
-      console.log(`    ${st}${C.reset}  score=${String(r.ai_score).padStart(3)}  [${r.difficulty}]  ${r.title}`);
-    });
-
+    token = await getToken(userId);
+    assert("Got JWT token from /api/auth/google", !!token);
   } catch (e: any) {
-    if (e.message !== "DAILY_QUOTA_EXHAUSTED") throw e;
+    fail(`Could not get token: ${e.message}`);
+    fail("Make sure the server is running: npm run dev");
+    await pool.end(); return;
   }
 
-  console.log(`\n${C.bold}${C.blue}${"═".repeat(60)}\n  DONE\n${"═".repeat(60)}${C.reset}\n`);
+  // ──────────────────────────────────────────────────────────
+  // CHECK INITIAL STATUS
+  // ──────────────────────────────────────────────────────────
+  head("INITIAL STATUS (fresh student, no submissions)");
+  const s0 = await getSkillStatus(token, userId, skillId);
+  info(`Status: ${JSON.stringify(s0.status, null, 2).split("\n").join("\n    ")}`);
+  assert("Initial level is Beginner",      s0.status.currentLevel === "Beginner");
+  assert("0 passes at current level",      s0.status.passesAtCurrentLevel === 0);
+  assert("Cannot level up yet",            s0.status.canLevelUp === false);
+  assert("Next level is Intermediate",     s0.status.nextLevel === "Intermediate");
+
+  // ──────────────────────────────────────────────────────────
+  // ROUND 1 — Generate Beginner, submit GOOD answer (pass 1)
+  // ──────────────────────────────────────────────────────────
+  head("ROUND 1 — Beginner  (1st pass, no level-up yet)");
+
+  const gen1 = await generateAssignment(token, userId, skillId);
+  if (!gen1.success) {
+    fail(`Generate failed: ${gen1.message}`);
+    if (gen1.message?.includes("quota") || gen1.error?.includes("429")) {
+      console.log(`\n${C.yellow}  Gemini daily quota exhausted. Run again tomorrow.${C.reset}\n`);
+    }
+    await pool.end(); return;
+  }
+
+  info(`Difficulty assigned by server: ${gen1.assignment.difficulty}`);
+  info(`Title: ${gen1.assignment.title}`);
+  assert("Server assigned Beginner",       gen1.assignment.difficulty === "Beginner");
+  assert("Progression returned",           !!gen1.progression);
+
+  const a1  = gen1.assignment;
+  const q1  = a1.questions?.question ?? "";
+  const ec1 = (a1.questions?.expectedConcepts ?? []) as string[];
+
+  const goodAnswer1 = `${ec1.map((c: string) => `${c}: This concept is central to ${skillName}. It ensures correctness by applying ${c} principles throughout the solution.`).join(" ")} Overall this demonstrates a solid understanding of the topic.`;
+
+  const eval1 = await evaluateAnswer(token, userId, a1.id, goodAnswer1);
+  info(`Score: ${eval1.evaluation?.score}  |  Passed: ${eval1.evaluation?.passed}`);
+  info(`Feedback: ${eval1.evaluation?.feedback}`);
+  info(`Level-up: ${eval1.progression?.leveledUp}  |  Msg: ${eval1.progression?.levelUpMessage}`);
+
+  assert("Round 1 passed (score ≥60)",     eval1.evaluation?.score >= 60);
+  assert("No level-up yet (need 2 passes)", eval1.progression?.leveledUp === false);
+  assert("Still Beginner after 1 pass",    eval1.progression?.currentLevel === "Beginner");
+
+  // ──────────────────────────────────────────────────────────
+  // ROUND 2 — Still Beginner, submit GOOD answer (pass 2 → level-up!)
+  // ──────────────────────────────────────────────────────────
+  head("ROUND 2 — Beginner  (2nd pass → should unlock Intermediate)");
+
+  const gen2 = await generateAssignment(token, userId, skillId);
+  if (!gen2.success) {
+    fail(`Generate failed: ${gen2.message}`); await pool.end(); return;
+  }
+
+  info(`Difficulty assigned by server: ${gen2.assignment.difficulty}`);
+  assert("Server still assigns Beginner (not leveled up yet)", gen2.assignment.difficulty === "Beginner");
+
+  const a2  = gen2.assignment;
+  const ec2 = (a2.questions?.expectedConcepts ?? []) as string[];
+  const goodAnswer2 = `${ec2.map((c: string) => `${c}: A key part of ${skillName}. Applying ${c} correctly makes the solution reliable and efficient.`).join(" ")} This answer covers all the required concepts thoroughly.`;
+
+  const eval2 = await evaluateAnswer(token, userId, a2.id, goodAnswer2);
+  info(`Score: ${eval2.evaluation?.score}  |  Passed: ${eval2.evaluation?.passed}`);
+  info(`Level-up: ${eval2.progression?.leveledUp}  |  Msg: ${eval2.progression?.levelUpMessage}`);
+  info(`Current level now: ${eval2.progression?.currentLevel}`);
+
+  assert("Round 2 passed (score ≥60)",      eval2.evaluation?.score >= 60);
+  assert("Level-up triggered",              eval2.progression?.leveledUp === true);
+  assert("Level-up message present",        !!eval2.progression?.levelUpMessage);
+  assert("Level is now Intermediate",       eval2.progression?.currentLevel === "Intermediate");
+
+  // ──────────────────────────────────────────────────────────
+  // ROUND 3 — First Intermediate assignment (earned it!)
+  // ──────────────────────────────────────────────────────────
+  head("ROUND 3 — Intermediate  (first assignment at new level)");
+
+  const gen3 = await generateAssignment(token, userId, skillId);
+  if (!gen3.success) {
+    fail(`Generate failed: ${gen3.message}`); await pool.end(); return;
+  }
+
+  info(`Difficulty assigned by server: ${gen3.assignment.difficulty}`);
+  assert("Server now assigns Intermediate", gen3.assignment.difficulty === "Intermediate");
+
+  // BAD answer — should fail, no level-up
+  const eval3 = await evaluateAnswer(token, userId, gen3.assignment.id, "I have no idea how to answer this.");
+  info(`Score: ${eval3.evaluation?.score}  |  Passed: ${eval3.evaluation?.passed}`);
+  info(`Level-up: ${eval3.progression?.leveledUp}  |  Msg: ${eval3.progression?.levelUpMessage}`);
+
+  assert("Round 3 failed (bad answer)",     eval3.evaluation?.score < 60);
+  assert("No level-up on failed answer",    eval3.progression?.leveledUp === false);
+  assert("Still Intermediate after fail",   eval3.progression?.currentLevel === "Intermediate");
+
+  // ──────────────────────────────────────────────────────────
+  // ROUND 4 — Next-assignment endpoint test
+  // ──────────────────────────────────────────────────────────
+  head("ROUND 4 — /next-assignment endpoint");
+
+  const next1 = await nextAssignment(token, userId, skillId);
+  if (!next1.success) {
+    fail(`Next-assignment failed: ${next1.message}`); await pool.end(); return;
+  }
+
+  info(`Difficulty: ${next1.assignment.difficulty}`);
+  info(`Hint: ${next1.progression?.hint}`);
+  assert("next-assignment returns Intermediate", next1.assignment.difficulty === "Intermediate");
+  assert("Hint shown to student",               !!next1.progression?.hint);
+
+  // ──────────────────────────────────────────────────────────
+  // FINAL STATUS CHECK
+  // ──────────────────────────────────────────────────────────
+  head("FINAL SKILL STATUS");
+  const sf = await getSkillStatus(token, userId, skillId);
+  info(`Level       : ${sf.status.currentLevel}`);
+  info(`Passes at level: ${sf.status.passesAtCurrentLevel}`);
+  info(`Next level  : ${sf.status.nextLevel}`);
+  info(`By level    : ${JSON.stringify(sf.status.byLevel)}`);
+
+  assert("Final level is Intermediate", sf.status.currentLevel === "Intermediate");
+
+  // ──────────────────────────────────────────────────────────
+  // SUMMARY
+  // ──────────────────────────────────────────────────────────
+  console.log(`\n${C.bold}${C.blue}${"═".repeat(62)}`);
+  console.log("  TEST RESULTS");
+  console.log(`${"═".repeat(62)}${C.reset}`);
+  console.log(`  ${C.green}Passed: ${passed}${C.reset}`);
+  if (failed > 0) console.log(`  ${C.red}Failed: ${failed}${C.reset}`);
+  console.log();
+
+  if (failed === 0) {
+    console.log(`  ${C.green}${C.bold}All assertions passed ✔${C.reset}`);
+  } else {
+    console.log(`  ${C.red}${C.bold}${failed} assertion(s) failed ✘${C.reset}`);
+    console.log(`  ${C.dim}Check the output above for details.${C.reset}`);
+  }
+  console.log(`\n${C.blue}${"═".repeat(62)}${C.reset}\n`);
+
   await pool.end();
 }
 
