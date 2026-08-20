@@ -152,18 +152,18 @@ function IconTrophySmall({ color }: { color: string }) {
 type NavItem = { label: string; route: string; Icon: (p: { color: string }) => JSX.Element };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Home", route: "/home", Icon: IconHome },
-  { label: "Dashboard", route: "/dashboard", Icon: IconDashboard },
-  { label: "Skills", route: "/skills", Icon: IconSkills },
-  { label: "Assignments", route: "/assignments", Icon: IconAssignments },
-  { label: "Hackathons", route: "/hackathons", Icon: IconHackathon },
-  { label: "Explore", route: "/explore", Icon: IconExplore },
-  { label: "Students", route: "/students", Icon: IconStudents },
-  { label: "Chat", route: "/chat", Icon: IconChat },
-  { label: "Bookmarks", route: "/bookmarks", Icon: IconBookmark },
+  { label: "Home",          route: "/home",          Icon: IconHome },
+  { label: "Dashboard",     route: "/dashboard",     Icon: IconDashboard },
+  { label: "Skills",        route: "/skills",        Icon: IconSkills },
+  { label: "Assignments",   route: "/assignments",   Icon: IconAssignments },
+  { label: "Hackathons",    route: "/hackathons",    Icon: IconHackathon },
+  { label: "Explore",       route: "/explore",       Icon: IconExplore },
+  { label: "Students",      route: "/students",      Icon: IconStudents },
+  { label: "Chat",          route: "/chat",          Icon: IconChat },
+  { label: "Bookmarks",     route: "/bookmarks",     Icon: IconBookmark },
   { label: "Notifications", route: "/notifications", Icon: IconBell },
-  { label: "Profile", route: "/profile", Icon: IconProfile },
-  { label: "Settings", route: "/settings", Icon: IconSettings },
+  { label: "Profile",       route: "/profile",       Icon: IconProfile },
+  { label: "Settings",      route: "/settings",      Icon: IconSettings },
 ];
 
 /* ---------------------------------------------------------

@@ -225,10 +225,10 @@ export default function LoginScreen() {
           )}&token=${encodeURIComponent(data.token)}`
         );
       } else {
-  // Existing user
-  router.replace(
-    `/home?userId=${data.user.id}`
-  );
+        // Existing user — persist session BEFORE navigating so
+        // AuthGate sees a valid token and doesn't redirect to /login.
+        await auth.login(data.token, data.user);
+        router.replace("/home");
       }
     } catch (error) {
       console.error("GOOGLE LOGIN ERROR:", error);

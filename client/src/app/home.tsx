@@ -8,8 +8,10 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import Svg, { Path, Circle, Rect, Line, Polyline } from "react-native-svg";
 import {
   useFonts,
@@ -21,6 +23,8 @@ import {
 } from "@expo-google-fonts/plus-jakarta-sans";
 
 import SidebarNav from "../components/sidebar-nav";
+import { useAuth } from "../context/AuthContext";
+import { apiFetch } from "../services/api";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -52,7 +56,7 @@ const COLORS = {
 };
 
 /* ---------------------------------------------------------
-   ICONS  (unchanged — same set as before)
+   ICONS
 --------------------------------------------------------- */
 function LogoMark({ size = 34 }: { size?: number }) {
   return (
@@ -97,39 +101,6 @@ function IconChevronDown({ size = 14, color = COLORS.slate }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Polyline points="6 9 12 15 18 9" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-function IconTextT({ size = 16, color = COLORS.primary }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M5 5h14M12 5v14" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-    </Svg>
-  );
-}
-function IconImage({ size = 16, color = COLORS.green }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={4} width={18} height={16} rx={2} stroke={color} strokeWidth={2} />
-      <Circle cx={9} cy={10} r={1.6} stroke={color} strokeWidth={2} />
-      <Path d="m4 17 5-5 4 4 3-3 4 4" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-function IconCodeBrackets({ size = 16, color = COLORS.purple }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Polyline points="16 18 22 12 16 6" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-      <Polyline points="8 6 2 12 8 18" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-function IconPoll({ size = 16, color = COLORS.orange }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Line x1={5} y1={20} x2={5} y2={13} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
-      <Line x1={12} y1={20} x2={12} y2={7} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
-      <Line x1={19} y1={20} x2={19} y2={10} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -194,10 +165,18 @@ function IconDots({ size = 18, color = COLORS.slate }) {
     </Svg>
   );
 }
-function IconPlay({ size = 22 }) {
+function IconX({ size = 14, color = COLORS.slate }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8 5v14l11-7-11-7z" fill="#FFFFFF" />
+      <Line x1={6} y1={6} x2={18} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={18} y1={6} x2={6} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+function IconTextT({ size = 16, color = COLORS.primary }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 5h14M12 5v14" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -206,13 +185,6 @@ function IconUsersSmall({ size = 16, color = COLORS.primary }) {
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke={color} strokeWidth={2} strokeLinecap="round" />
       <Circle cx={9} cy={7} r={4} stroke={color} strokeWidth={2} />
-    </Svg>
-  );
-}
-function IconFolder({ size = 16, color = COLORS.primary }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -235,50 +207,46 @@ function IconRefresh({ size = 16, color = COLORS.primary }) {
     </Svg>
   );
 }
-function IconX({ size = 14, color = COLORS.slate }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Line x1={6} y1={6} x2={18} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={18} y1={6} x2={6} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
-}
 
 /* ---------------------------------------------------------
-   PROFILE — fetched, not hardcoded.
-   Swap the body of fetchProfile() for your real endpoint:
-     const res = await fetch(`${API_BASE}/api/profile/me`);
-     return res.json();
+   TYPES
 --------------------------------------------------------- */
-type Profile = {
-  id: string;
-  name: string;
-  avatar: string;
-  dept: string;
-  level: number;
-  levelLabel: string;
-  xp: number;
-  xpMax: number;
+type Post = {
+  id: number;
+  content: string;
+  image_url: string | null;
+  created_at: string;
+  user_id: number;
+  user_name: string;
+  college: string;
+  department: string;
+  avatar_url: string | null;
+  like_count: number;
+  comment_count: number;
 };
 
-async function fetchProfile(): Promise<Profile> {
-  await new Promise((r) => setTimeout(r, 350)); // simulate network
-  return {
-    id: "u_current",
-    name: "Alex Carter",
-    avatar: "https://i.pravatar.cc/100?img=68",
-    dept: "Computer Science",
-    level: 6,
-    levelLabel: "Advanced Learner",
-    xp: 3200,
-    xpMax: 4000,
-  };
-}
+type Comment = {
+  id: number;
+  comment: string;
+  created_at: string;
+  user_id: number;
+  user_name: string;
+  avatar_url: string | null;
+};
+
+type UserSkill = {
+  skill_id: number;
+  name: string;
+  progress: number;
+  score: number;
+  level: string;
+  assignments_completed: number;
+};
 
 /* ---------------------------------------------------------
-   MOCK FEED DATA
+   STATIC RIGHT-RAIL DATA
 --------------------------------------------------------- */
-const TABS = ["All", "Discussions", "Projects", "Announcements", "Events", "Resources"];
+const TABS = ["All", "Discussions", "Projects", "Announcements", "Events"];
 
 const TRENDING = [
   { tag: "WebDevelopment", count: "12.1K posts" },
@@ -288,83 +256,75 @@ const TRENDING = [
   { tag: "OpenSource", count: "5.1K posts" },
 ];
 
-const EVENTS = [
-  { month: "JUN", day: "20", title: "AI Innovation Challenge", subtitle: "Online Hackathon", date: "20 Jun \u2013 22 Jun, 2025" },
-  { month: "JUL", day: "05", title: "Web Dev Bootcamp", subtitle: "Online Workshop", date: "5 Jul, 2025 \u00b7 6:00 PM" },
-];
-
 const QUICK_LINKS = [
-  { label: "Find Study Groups", Icon: IconUsersSmall },
-  { label: "Browse Resources", Icon: IconFolder },
-  { label: "Explore Projects", Icon: IconTarget },
-  { label: "Practice Skills", Icon: IconRefresh },
+  { label: "Find Study Groups", Icon: IconUsersSmall, route: "/students" },
+  { label: "Explore Students", Icon: IconTarget, route: "/explore" },
+  { label: "Browse Skills", Icon: IconRefresh, route: "/skills" },
 ];
 
-type Post = {
-  id: string;
-  name: string;
-  badge: { label: string; color: string; bg: string };
-  time: string;
-  dept: string;
-  avatar: string;
-  text: string;
-  linkCard?: { image: string; title: string; description: string; url: string };
-  video?: string;
-  likes: number;
-  comments: number;
-  liked?: boolean;
-};
+/* ---------------------------------------------------------
+   HELPERS
+--------------------------------------------------------- */
+function getInitial(name: string) {
+  return name?.trim()?.charAt(0)?.toUpperCase() || "S";
+}
 
-const FEED_POSTS: Post[] = [
-  {
-    id: "1",
-    name: "Riya Sharma",
-    badge: { label: "Top Contributor", color: COLORS.purple, bg: COLORS.purpleSoft },
-    time: "2h ago",
-    dept: "Computer Science",
-    avatar: "https://i.pravatar.cc/100?img=47",
-    text: "Just finished building my portfolio website! \ud83d\ude80\nWould love your feedback on the design and functionality.",
-    linkCard: {
-      image: "https://images.unsplash.com/photo-1547658719-da2b51169166?w=600&q=80",
-      title: "My Portfolio",
-      description: "A modern portfolio website built with React and Tailwind CSS.",
-      url: "riyasharma.dev",
-    },
-    likes: 24,
-    comments: 6,
-  },
-  {
-    id: "2",
-    name: "Arjun Mehta",
-    badge: { label: "Student", color: COLORS.green, bg: COLORS.greenSoft },
-    time: "5h ago",
-    dept: "Electronics & Communication",
-    avatar: "https://i.pravatar.cc/100?img=12",
-    text: "Working on an IoT based smart plant watering system using ESP32 and Soil Moisture Sensor. \ud83c\udf31\ud83d\udca7\nHere's a quick demo of the prototype:",
-    video: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=900&q=80",
-    likes: 41,
-    comments: 9,
-  },
-];
+function formatDate(date: string) {
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(date).toLocaleDateString();
+}
+
+/** Derive a display level + XP from the user's skills list. */
+function deriveXpStats(skills: UserSkill[]) {
+  if (!skills.length) return { level: 1, levelLabel: "Newcomer", xp: 0, xpMax: 500 };
+
+  const totalCompleted = skills.reduce((s, sk) => s + sk.assignments_completed, 0);
+  const avgProgress = Math.round(skills.reduce((s, sk) => s + sk.progress, 0) / skills.length);
+
+  // Each assignment = 100 XP
+  const xp = totalCompleted * 100 + avgProgress;
+  const level = Math.max(1, Math.floor(xp / 500) + 1);
+  const xpInLevel = xp % 500;
+  const xpMax = 500;
+
+  const labels = ["Newcomer", "Explorer", "Learner", "Builder", "Developer", "Expert", "Master"];
+  const levelLabel = labels[Math.min(level - 1, labels.length - 1)];
+
+  return { level, levelLabel, xp: xpInLevel, xpMax };
+}
 
 /* ---------------------------------------------------------
    SCREEN
 --------------------------------------------------------- */
 export default function HomeScreen() {
-  const { userId } = useLocalSearchParams();
+  const { token, userId, user } = useAuth();
+
   const [activeTab, setActiveTab] = useState("All");
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // profile state — fetched on mount
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-
-  // feed state — starts from mock, grows with real posts
-  const [posts, setPosts] = useState<Post[]>(FEED_POSTS);
-
-  // composer state
+  // composer
   const [composerOpen, setComposerOpen] = useState(false);
   const [postText, setPostText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // likes / comments
+  const [likedPosts, setLikedPosts] = useState<number[]>([]);
+  const [expandedComments, setExpandedComments] = useState<number[]>([]);
+  const [comments, setComments] = useState<Record<number, Comment[]>>({});
+  const [commentText, setCommentText] = useState<Record<number, string>>({});
+  const [commentLoading, setCommentLoading] = useState<number | null>(null);
+
+  // skills (for XP card)
+  const [userSkills, setUserSkills] = useState<UserSkill[]>([]);
 
   const [fontsLoaded] = useFonts({
     PlusJakartaSans_400Regular,
@@ -374,63 +334,187 @@ export default function HomeScreen() {
     PlusJakartaSans_800ExtraBold,
   });
 
-  useEffect(() => {
-    let active = true;
-    setProfileLoading(true);
-    fetchProfile()
-      .then((p) => {
-        if (active) setProfile(p);
-      })
-      .finally(() => {
-        if (active) setProfileLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [userId]);
+  // ============================================================
+  // LOAD FEED
+  // ============================================================
 
-  const handleCreatePost = useCallback(() => {
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/feed", token);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to load feed");
+      setPosts(data.posts || []);
+    } catch {
+      // silent — don't alert on every refresh
+    } finally {
+      setFeedLoading(false);
+      setRefreshing(false);
+    }
+  }, [token]);
+
+  // ============================================================
+  // LOAD USER SKILLS (for XP)
+  // ============================================================
+
+  const loadSkills = useCallback(async () => {
+    if (!userId || !token) return;
+    try {
+      const res = await apiFetch(`/api/skills/user/${userId}`, token);
+      const data = await res.json();
+      if (data.success) setUserSkills(data.skills || []);
+    } catch {
+      // non-critical
+    }
+  }, [userId, token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadFeed();
+      loadSkills();
+    }, [loadFeed, loadSkills])
+  );
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadFeed();
+  };
+
+  // ============================================================
+  // CREATE POST
+  // ============================================================
+
+  const handleCreatePost = useCallback(async () => {
     const trimmed = postText.trim();
-    if (!trimmed || !profile) return;
+    if (!trimmed || !userId || !token) return;
+
     setSubmitting(true);
+    try {
+      const res = await apiFetch("/api/feed", token, {
+        method: "POST",
+        body: JSON.stringify({ userId, content: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to create post");
+      setPostText("");
+      setComposerOpen(false);
+      await loadFeed();
+    } catch (error) {
+      Alert.alert("Post Failed", error instanceof Error ? error.message : "Could not create post.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [postText, userId, token, loadFeed]);
 
-    const newPost: Post = {
-      id: `local_${Date.now()}`,
-      name: profile.name,
-      badge: { label: "You", color: COLORS.primary, bg: COLORS.primarySoft },
-      time: "Just now",
-      dept: profile.dept,
-      avatar: profile.avatar,
-      text: trimmed,
-      likes: 0,
-      comments: 0,
-    };
+  // ============================================================
+  // LIKE
+  // ============================================================
 
-    // Optimistic insert — swap for an actual POST /api/posts call,
-    // then reconcile the returned post id/timestamp here.
-    setPosts((prev) => [newPost, ...prev]);
-    setPostText("");
-    setComposerOpen(false);
-    setSubmitting(false);
-  }, [postText, profile]);
+  const handleToggleLike = useCallback(async (post: Post) => {
+    if (!token) return;
+    try {
+      const res = await apiFetch(`/api/feed/${post.id}/like`, token, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.success) return;
+      setLikedPosts((prev) =>
+        data.liked ? [...prev, post.id] : prev.filter((id) => id !== post.id)
+      );
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id
+            ? { ...p, like_count: p.like_count + (data.liked ? 1 : -1) }
+            : p
+        )
+      );
+    } catch {
+      // silent
+    }
+  }, [token]);
 
-  const handleToggleLike = useCallback((id: string) => {
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 }
-          : p
-      )
-    );
-  }, []);
+  // ============================================================
+  // COMMENTS
+  // ============================================================
+
+  const loadComments = useCallback(async (postId: number) => {
+    setCommentLoading(postId);
+    try {
+      const res = await apiFetch(`/api/feed/${postId}/comments`, token);
+      const data = await res.json();
+      if (data.success) setComments((prev) => ({ ...prev, [postId]: data.comments || [] }));
+    } catch {
+      // silent
+    } finally {
+      setCommentLoading(null);
+    }
+  }, [token]);
+
+  const toggleComments = useCallback(async (postId: number) => {
+    const isExpanded = expandedComments.includes(postId);
+    if (isExpanded) {
+      setExpandedComments((prev) => prev.filter((id) => id !== postId));
+      return;
+    }
+    setExpandedComments((prev) => [...prev, postId]);
+    await loadComments(postId);
+  }, [expandedComments, loadComments]);
+
+  const addComment = useCallback(async (postId: number) => {
+    const text = commentText[postId]?.trim() || "";
+    if (!text || !token) return;
+    setCommentLoading(postId);
+    try {
+      const res = await apiFetch(`/api/feed/${postId}/comments`, token, {
+        method: "POST",
+        body: JSON.stringify({ comment: text }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCommentText((prev) => ({ ...prev, [postId]: "" }));
+        await loadComments(postId);
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === postId ? { ...p, comment_count: p.comment_count + 1 } : p
+          )
+        );
+      }
+    } catch {
+      // silent
+    } finally {
+      setCommentLoading(null);
+    }
+  }, [commentText, token, loadComments]);
+
+  // ============================================================
+  // DELETE POST
+  // ============================================================
+
+  const deletePost = useCallback((postId: number) => {
+    Alert.alert("Delete post", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const res = await apiFetch(`/api/feed/${postId}`, token, { method: "DELETE" });
+            const data = await res.json();
+            if (data.success) setPosts((prev) => prev.filter((p) => p.id !== postId));
+          } catch {
+            Alert.alert("Error", "Could not delete post.");
+          }
+        },
+      },
+    ]);
+  }, [token]);
 
   if (!fontsLoaded) return <View style={styles.page} />;
 
-  const firstName = profile?.name?.split(" ")[0] ?? "there";
+  const firstName = user?.name?.split(" ")[0] ?? "there";
+  const xpStats = deriveXpStats(userSkills);
+  const avatarLetter = user?.name ? getInitial(user.name) : "S";
 
   return (
     <View style={styles.page}>
-      {/* HEADER */}
+      {/* ===== HEADER ===== */}
       <View style={styles.header}>
         <Pressable style={styles.logoRow} onPress={() => router.push("/home")}>
           <LogoMark size={30} />
@@ -442,7 +526,7 @@ export default function HomeScreen() {
         <View style={styles.searchBar}>
           <IconSearch />
           <TextInput
-            placeholder="Search posts, people, skills, projects..."
+            placeholder="Search posts, people, skills..."
             placeholderTextColor={COLORS.slate}
             style={styles.searchInput}
           />
@@ -453,46 +537,48 @@ export default function HomeScreen() {
             <IconPlus />
             <Text style={styles.createPostText}>Create Post</Text>
           </Pressable>
-
-          <Pressable style={styles.iconBtn}>
+          <Pressable style={styles.iconBtn} onPress={() => router.push("/notifications")}>
             <IconBell />
           </Pressable>
-          <Pressable style={styles.iconBtn}>
+          <Pressable style={styles.iconBtn} onPress={() => router.push("/chat" as any)}>
             <IconChatBubble />
           </Pressable>
-
-          <Pressable style={styles.avatarRow}>
-            <View>
-              {profileLoading ? (
-                <View style={[styles.avatarImg, styles.avatarSkeleton]} />
-              ) : (
-                <Image source={{ uri: profile!.avatar }} style={styles.avatarImg} />
-              )}
-              <View style={styles.onlineDot} />
+          <Pressable
+            style={styles.avatarRow}
+            onPress={() => router.push("/profile")}
+          >
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarLetter}>{avatarLetter}</Text>
             </View>
             <IconChevronDown />
           </Pressable>
         </View>
       </View>
 
-      {/* BODY */}
+      {/* ===== BODY ===== */}
       <View style={styles.body}>
+        {/* Sidebar receives real XP from user_skills */}
         <SidebarNav
-          level={profile?.level}
-          levelLabel={profile?.levelLabel}
-          xp={profile?.xp}
-          xpMax={profile?.xpMax}
+          level={xpStats.level}
+          levelLabel={xpStats.levelLabel}
+          xp={xpStats.xp}
+          xpMax={xpStats.xpMax}
         />
 
-        <ScrollView style={styles.mainCol} contentContainerStyle={styles.mainColContent}>
+        {/* ===== MAIN FEED COLUMN ===== */}
+        <ScrollView
+          style={styles.mainCol}
+          contentContainerStyle={styles.mainColContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
           {/* COMPOSER */}
           <View style={styles.card}>
             <View style={styles.composerTopRow}>
-              {profileLoading ? (
-                <View style={[styles.composerAvatar, styles.avatarSkeleton]} />
-              ) : (
-                <Image source={{ uri: profile!.avatar }} style={styles.composerAvatar} />
-              )}
+              <View style={styles.composerAvatar}>
+                <Text style={styles.composerAvatarLetter}>{avatarLetter}</Text>
+              </View>
 
               {composerOpen ? (
                 <TextInput
@@ -500,14 +586,14 @@ export default function HomeScreen() {
                   multiline
                   value={postText}
                   onChangeText={setPostText}
-                  placeholder={`What's happening, ${firstName}?`}
+                  placeholder={`What's on your mind, ${firstName}?`}
                   placeholderTextColor={COLORS.slate}
                   style={styles.composerInput}
                 />
               ) : (
                 <Pressable style={{ flex: 1 }} onPress={() => setComposerOpen(true)}>
                   <Text style={styles.composerGreeting}>
-                    {profileLoading ? "Loading..." : `What's happening, ${firstName}?`}
+                    {`What's on your mind, ${firstName}?`}
                   </Text>
                 </Pressable>
               )}
@@ -545,11 +631,13 @@ export default function HomeScreen() {
               </View>
             ) : (
               <View style={styles.composerActionsRow}>
-                <ComposerAction Icon={IconTextT} label="Text" color={COLORS.primary} bg={COLORS.primarySoft} onPress={() => setComposerOpen(true)} />
-                <ComposerAction Icon={IconImage} label="Image" color={COLORS.green} bg={COLORS.greenSoft} />
-                <ComposerAction Icon={IconCodeBrackets} label="Project" color={COLORS.purple} bg={COLORS.purpleSoft} />
-                <ComposerAction Icon={IconPoll} label="Poll" color={COLORS.orange} bg={COLORS.orangeSoft} />
-                <ComposerAction Icon={IconLink} label="Link" color={COLORS.primary} bg={COLORS.primarySoft} />
+                <ComposerAction
+                  Icon={IconTextT}
+                  label="Post"
+                  color={COLORS.primary}
+                  bg={COLORS.primarySoft}
+                  onPress={() => setComposerOpen(true)}
+                />
               </View>
             )}
           </View>
@@ -572,148 +660,214 @@ export default function HomeScreen() {
                 );
               })}
             </View>
-            <Pressable style={styles.sortRow}>
-              <Text style={styles.sortText}>Most Recent</Text>
-              <IconChevronDown />
-            </Pressable>
           </View>
 
-          {/* FEED */}
-          {posts.map((post) => (
-            <View key={post.id} style={styles.card}>
-              <View style={styles.postHeaderRow}>
-                <Image source={{ uri: post.avatar }} style={styles.postAvatar} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.postNameRow}>
-                    <Text style={styles.postName}>{post.name}</Text>
-                    <View style={[styles.badge, { backgroundColor: post.badge.bg }]}>
-                      <View style={[styles.badgeDot, { backgroundColor: post.badge.color }]} />
-                      <Text style={[styles.badgeText, { color: post.badge.color }]}>
-                        {post.badge.label}
+          {/* FEED POSTS */}
+          {feedLoading ? (
+            <View style={styles.feedLoader}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+            </View>
+          ) : posts.length === 0 ? (
+            <View style={[styles.card, styles.emptyCard]}>
+              <Text style={styles.emptyIcon}>✨</Text>
+              <Text style={styles.emptyTitle}>No posts yet</Text>
+              <Text style={styles.emptyText}>
+                Be the first to share something with the SkillVerse community.
+              </Text>
+            </View>
+          ) : (
+            posts.map((post) => {
+              const isLiked = likedPosts.includes(post.id);
+              const isCommentsExpanded = expandedComments.includes(post.id);
+              const postComments = comments[post.id] || [];
+
+              return (
+                <View key={post.id} style={styles.card}>
+                  {/* Post header */}
+                  <View style={styles.postHeaderRow}>
+                    <View style={styles.postAvatarCircle}>
+                      <Text style={styles.postAvatarLetter}>
+                        {getInitial(post.user_name)}
                       </Text>
                     </View>
-                  </View>
-                  <Text style={styles.postMeta}>
-                    {post.time} · {post.dept}
-                  </Text>
-                </View>
-                <Pressable hitSlop={8}>
-                  <IconDots />
-                </Pressable>
-              </View>
-
-              <Text style={styles.postText}>{post.text}</Text>
-
-              {post.linkCard && (
-                <View style={styles.linkCard}>
-                  <Image source={{ uri: post.linkCard.image }} style={styles.linkCardImage} />
-                  <View style={styles.linkCardInfo}>
-                    <Text style={styles.linkCardTitle}>{post.linkCard.title}</Text>
-                    <Text style={styles.linkCardDesc}>{post.linkCard.description}</Text>
-                    <View style={styles.linkCardUrlRow}>
-                      <IconLink size={13} />
-                      <Text style={styles.linkCardUrl}>{post.linkCard.url}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.postNameRow}>
+                        <Pressable
+                          onPress={() =>
+                            router.push(`/student-profile?id=${post.user_id}` as any)
+                          }
+                        >
+                          <Text style={styles.postName}>{post.user_name}</Text>
+                        </Pressable>
+                      </View>
+                      <Text style={styles.postMeta}>
+                        {formatDate(post.created_at)} · {post.college}
+                      </Text>
                     </View>
+                    {post.user_id === userId && (
+                      <Pressable hitSlop={8} onPress={() => deletePost(post.id)}>
+                        <IconDots />
+                      </Pressable>
+                    )}
                   </View>
-                </View>
-              )}
 
-              {post.video && (
-                <View style={styles.videoWrap}>
-                  <Image source={{ uri: post.video }} style={styles.videoImage} />
-                  <View style={styles.playButton}>
-                    <IconPlay />
+                  <Text style={styles.postText}>{post.content}</Text>
+
+                  {/* Footer actions */}
+                  <View style={styles.postFooterRow}>
+                    <View style={styles.postFooterLeft}>
+                      <Pressable
+                        style={styles.footerAction}
+                        onPress={() => handleToggleLike(post)}
+                      >
+                        <IconThumbsUp filled={isLiked} />
+                        <Text
+                          style={[
+                            styles.footerActionText,
+                            isLiked && { color: COLORS.primary },
+                          ]}
+                        >
+                          {post.like_count}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.footerAction}
+                        onPress={() => toggleComments(post.id)}
+                      >
+                        <IconComment />
+                        <Text style={styles.footerActionText}>{post.comment_count}</Text>
+                      </Pressable>
+                      <Pressable style={styles.footerAction}>
+                        <IconShare />
+                        <Text style={styles.footerActionText}>Share</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable hitSlop={8}>
+                      <IconBookmarkOutline />
+                    </Pressable>
                   </View>
-                </View>
-              )}
 
-              <View style={styles.postFooterRow}>
-                <View style={styles.postFooterLeft}>
-                  <Pressable style={styles.footerAction} onPress={() => handleToggleLike(post.id)}>
-                    <IconThumbsUp filled={!!post.liked} />
-                    <Text
-                      style={[
-                        styles.footerActionText,
-                        post.liked && { color: COLORS.primary },
-                      ]}
-                    >
-                      {post.likes}
-                    </Text>
-                  </Pressable>
-                  <Pressable style={styles.footerAction}>
-                    <IconComment />
-                    <Text style={styles.footerActionText}>{post.comments}</Text>
-                  </Pressable>
-                  <Pressable style={styles.footerAction}>
-                    <IconShare />
-                    <Text style={styles.footerActionText}>Share</Text>
-                  </Pressable>
+                  {/* Comments section */}
+                  {isCommentsExpanded && (
+                    <View style={styles.commentsSection}>
+                      <View style={styles.commentInputRow}>
+                        <TextInput
+                          value={commentText[post.id] || ""}
+                          onChangeText={(text) =>
+                            setCommentText((prev) => ({ ...prev, [post.id]: text }))
+                          }
+                          placeholder="Write a comment..."
+                          placeholderTextColor="#94A3B8"
+                          style={styles.commentInput}
+                        />
+                        <Pressable
+                          style={styles.commentSendBtn}
+                          onPress={() => addComment(post.id)}
+                          disabled={commentLoading === post.id}
+                        >
+                          {commentLoading === post.id ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.commentSendText}>→</Text>
+                          )}
+                        </Pressable>
+                      </View>
+
+                      {postComments.length === 0 ? (
+                        <Text style={styles.noComments}>
+                          No comments yet. Be the first!
+                        </Text>
+                      ) : (
+                        postComments.map((c) => (
+                          <View key={c.id} style={styles.comment}>
+                            <View style={styles.commentAvatarCircle}>
+                              <Text style={styles.commentAvatarLetter}>
+                                {getInitial(c.user_name)}
+                              </Text>
+                            </View>
+                            <View style={styles.commentBody}>
+                              <Text style={styles.commentUser}>{c.user_name}</Text>
+                              <Text style={styles.commentText}>{c.comment}</Text>
+                            </View>
+                          </View>
+                        ))
+                      )}
+                    </View>
+                  )}
                 </View>
-                <Pressable hitSlop={8}>
-                  <IconBookmarkOutline />
-                </Pressable>
-              </View>
-            </View>
-          ))}
+              );
+            })
+          )}
         </ScrollView>
 
-        {/* RIGHT RAIL — narrowed */}
+        {/* ===== RIGHT RAIL ===== */}
         <ScrollView style={styles.rightCol} contentContainerStyle={styles.rightColContent}>
+          {/* Trending */}
           <View style={styles.card}>
             <View style={styles.railHeaderRow}>
               <Text style={styles.railTitle}>Trending Topics</Text>
-              <Pressable>
-                <Text style={styles.railViewAll}>View all</Text>
-              </Pressable>
             </View>
             {TRENDING.map((t, i) => (
-              <View key={t.tag} style={[styles.trendingRow, i === 0 && { marginTop: 4 }]}>
+              <View
+                key={t.tag}
+                style={[styles.trendingRow, i === 0 && { marginTop: 4 }]}
+              >
                 <View style={styles.trendingLeft}>
                   <View style={styles.hashCircle}>
                     <IconHash />
                   </View>
-                  <Text style={styles.trendingTag} numberOfLines={1}>{t.tag}</Text>
+                  <Text style={styles.trendingTag} numberOfLines={1}>
+                    {t.tag}
+                  </Text>
                 </View>
                 <Text style={styles.trendingCount}>{t.count}</Text>
               </View>
             ))}
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.railHeaderRow}>
-              <Text style={styles.railTitle}>Upcoming Events</Text>
-              <Pressable>
-                <Text style={styles.railViewAll}>View all</Text>
-              </Pressable>
-            </View>
-            {EVENTS.map((e, i) => (
-              <View key={e.title}>
-                <View style={styles.eventRow}>
-                  <View style={styles.dateBadge}>
-                    <Text style={styles.dateBadgeMonth}>{e.month}</Text>
-                    <Text style={styles.dateBadgeDay}>{e.day}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.eventTitle}>{e.title}</Text>
-                    <Text style={styles.eventSubtitle}>{e.subtitle}</Text>
-                    <Text style={styles.eventDate}>{e.date}</Text>
-                  </View>
-                </View>
-                {i < EVENTS.length - 1 && <View style={styles.eventDivider} />}
-              </View>
-            ))}
-          </View>
-
+          {/* Quick links */}
           <View style={styles.card}>
             <Text style={[styles.railTitle, { marginBottom: 10 }]}>Quick Links</Text>
             {QUICK_LINKS.map((q) => (
-              <Pressable key={q.label} style={styles.quickLinkRow}>
+              <Pressable
+                key={q.label}
+                style={styles.quickLinkRow}
+                onPress={() => router.push(q.route as any)}
+              >
                 <View style={styles.quickLinkIconWrap}>
                   <q.Icon />
                 </View>
-                <Text style={styles.quickLinkText} numberOfLines={1}>{q.label}</Text>
+                <Text style={styles.quickLinkText} numberOfLines={1}>
+                  {q.label}
+                </Text>
               </Pressable>
             ))}
+          </View>
+
+          {/* Community stats card */}
+          <View style={styles.card}>
+            <Text style={[styles.railTitle, { marginBottom: 10 }]}>Your Stats</Text>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Skills learning</Text>
+              <Text style={styles.statValue}>{userSkills.length}</Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Assignments done</Text>
+              <Text style={styles.statValue}>
+                {userSkills.reduce((s, sk) => s + sk.assignments_completed, 0)}
+              </Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Avg progress</Text>
+              <Text style={styles.statValue}>
+                {userSkills.length
+                  ? Math.round(
+                      userSkills.reduce((s, sk) => s + sk.progress, 0) / userSkills.length
+                    )
+                  : 0}
+                %
+              </Text>
+            </View>
           </View>
         </ScrollView>
       </View>
@@ -721,6 +875,9 @@ export default function HomeScreen() {
   );
 }
 
+/* ---------------------------------------------------------
+   COMPOSER ACTION BUTTON
+--------------------------------------------------------- */
 function ComposerAction({
   Icon,
   label,
@@ -750,6 +907,7 @@ function ComposerAction({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: COLORS.bg },
 
+  // HEADER
   header: {
     height: 68,
     flexDirection: "row",
@@ -800,25 +958,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarRow: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 4 },
-  avatarImg: { width: 36, height: 36, borderRadius: 18 },
-  avatarSkeleton: { backgroundColor: COLORS.border },
-  onlineDot: {
-    position: "absolute",
-    bottom: -1,
-    right: -1,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#22C55E",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
+  avatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  avatarLetter: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 14 },
 
-  /* BODY LAYOUT */
+  // BODY
   body: { flex: 1, flexDirection: "row" },
   mainCol: { flex: 1 },
   mainColContent: { padding: 24, gap: 20, maxWidth: 860 },
-  // narrowed right rail: 320 -> 248
   rightCol: { width: 248, borderLeftWidth: 1, borderLeftColor: COLORS.border },
   rightColContent: { padding: 16, gap: 16 },
 
@@ -830,9 +983,17 @@ const styles = StyleSheet.create({
     padding: 20,
   },
 
-  /* COMPOSER */
+  // COMPOSER
   composerTopRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  composerAvatar: { width: 44, height: 44, borderRadius: 22 },
+  composerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  composerAvatarLetter: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 17 },
   composerGreeting: { fontFamily: FONT.bold, fontSize: 17, color: COLORS.navy },
   composerInput: {
     flex: 1,
@@ -861,12 +1022,7 @@ const styles = StyleSheet.create({
   },
   postSubmitBtnDisabled: { backgroundColor: COLORS.border },
   postSubmitText: { fontFamily: FONT.semibold, fontSize: 13.5, color: "#FFFFFF" },
-  composerActionsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
-    flexWrap: "wrap",
-  },
+  composerActionsRow: { flexDirection: "row", gap: 10, marginTop: 16, flexWrap: "wrap" },
   composerAction: {
     flexDirection: "row",
     alignItems: "center",
@@ -886,8 +1042,14 @@ const styles = StyleSheet.create({
   },
   composerActionLabel: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
 
-  /* TABS */
-  tabsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
+  // TABS
+  tabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 12,
+  },
   tabsGroup: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   tabPill: {
     paddingVertical: 8,
@@ -900,63 +1062,47 @@ const styles = StyleSheet.create({
   tabPillActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   tabPillText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
   tabPillTextActive: { color: "#FFFFFF" },
-  sortRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  sortText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
 
-  /* POST */
+  // FEED
+  feedLoader: { paddingVertical: 60, alignItems: "center" },
+  emptyCard: { alignItems: "center", paddingVertical: 40 },
+  emptyIcon: { fontSize: 36, marginBottom: 12 },
+  emptyTitle: { fontFamily: FONT.bold, fontSize: 18, color: COLORS.navy },
+  emptyText: {
+    fontFamily: FONT.regular,
+    fontSize: 14,
+    color: COLORS.slate,
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 360,
+  },
+
+  // POST
   postHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  postAvatar: { width: 44, height: 44, borderRadius: 22 },
-  postNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  postName: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 3,
-    paddingHorizontal: 9,
-    borderRadius: 12,
-  },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontFamily: FONT.semibold, fontSize: 11.5 },
-  postMeta: { fontFamily: FONT.regular, fontSize: 12.5, color: COLORS.slate, marginTop: 2 },
-  postText: { fontFamily: FONT.regular, fontSize: 14.5, lineHeight: 22, color: COLORS.slateDark, marginTop: 14 },
-
-  linkCard: {
-    marginTop: 14,
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  linkCardImage: { width: 190, height: 130 },
-  linkCardInfo: { flex: 1, padding: 14, justifyContent: "center", gap: 4 },
-  linkCardTitle: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
-  linkCardDesc: { fontFamily: FONT.regular, fontSize: 12.5, color: COLORS.slate, lineHeight: 18 },
-  linkCardUrlRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 },
-  linkCardUrl: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.primary },
-
-  videoWrap: {
-    marginTop: 14,
-    borderRadius: 12,
-    overflow: "hidden",
-    height: 280,
-  },
-  videoImage: { width: "100%", height: "100%" },
-  playButton: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginTop: -26,
-    marginLeft: -26,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(15,23,42,0.55)",
+  postAvatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
-
+  postAvatarLetter: { fontFamily: FONT.bold, fontSize: 17, color: COLORS.primary },
+  postNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  postName: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
+  postMeta: {
+    fontFamily: FONT.regular,
+    fontSize: 12.5,
+    color: COLORS.slate,
+    marginTop: 2,
+  },
+  postText: {
+    fontFamily: FONT.regular,
+    fontSize: 14.5,
+    lineHeight: 22,
+    color: COLORS.slateDark,
+    marginTop: 14,
+  },
   postFooterRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -970,10 +1116,77 @@ const styles = StyleSheet.create({
   footerAction: { flexDirection: "row", alignItems: "center", gap: 6 },
   footerActionText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slate },
 
-  /* RIGHT RAIL */
-  railHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  // COMMENTS
+  commentsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  commentInputRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  commentInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: COLORS.navy,
+    backgroundColor: "#F8FAFC",
+    fontFamily: FONT.regular,
+  },
+  commentSendBtn: {
+    width: 42,
+    height: 42,
+    marginLeft: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  commentSendText: { color: "#FFFFFF", fontSize: 18, fontFamily: FONT.bold },
+  noComments: {
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    color: COLORS.slate,
+    textAlign: "center",
+    paddingVertical: 8,
+  },
+  comment: { flexDirection: "row", marginBottom: 12 },
+  commentAvatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  commentAvatarLetter: { fontFamily: FONT.bold, fontSize: 13, color: COLORS.primary },
+  commentBody: {
+    flex: 1,
+    marginLeft: 10,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 10,
+    padding: 10,
+  },
+  commentUser: { fontFamily: FONT.bold, fontSize: 12, color: COLORS.slateDark },
+  commentText: {
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#475569",
+    marginTop: 3,
+  },
+
+  // RIGHT RAIL
+  railHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
   railTitle: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
-  railViewAll: { fontFamily: FONT.semibold, fontSize: 12, color: COLORS.primary },
   trendingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -990,26 +1203,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  trendingTag: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.navy, flexShrink: 1 },
-  trendingCount: { fontFamily: FONT.regular, fontSize: 11, color: COLORS.slate },
-
-  eventRow: { flexDirection: "row", gap: 10, paddingVertical: 12 },
-  dateBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: COLORS.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
+  trendingTag: {
+    fontFamily: FONT.semibold,
+    fontSize: 12.5,
+    color: COLORS.navy,
+    flexShrink: 1,
   },
-  dateBadgeMonth: { fontFamily: FONT.semibold, fontSize: 9.5, color: COLORS.primary },
-  dateBadgeDay: { fontFamily: FONT.extrabold, fontSize: 15, color: COLORS.primary, marginTop: -2 },
-  eventTitle: { fontFamily: FONT.bold, fontSize: 12.5, color: COLORS.navy },
-  eventSubtitle: { fontFamily: FONT.regular, fontSize: 11, color: COLORS.slate, marginTop: 1 },
-  eventDate: { fontFamily: FONT.regular, fontSize: 10.5, color: COLORS.slate, marginTop: 2 },
-  eventDivider: { height: 1, backgroundColor: COLORS.border },
-
-  quickLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9 },
+  trendingCount: { fontFamily: FONT.regular, fontSize: 11, color: COLORS.slate },
+  quickLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 9,
+  },
   quickLinkIconWrap: {
     width: 30,
     height: 30,
@@ -1018,5 +1224,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  quickLinkText: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.slateDark, flexShrink: 1 },
+  quickLinkText: {
+    fontFamily: FONT.semibold,
+    fontSize: 12.5,
+    color: COLORS.slateDark,
+    flexShrink: 1,
+  },
+  statRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  statLabel: { fontFamily: FONT.regular, fontSize: 12.5, color: COLORS.slate },
+  statValue: { fontFamily: FONT.bold, fontSize: 13, color: COLORS.primary },
 });

@@ -270,12 +270,9 @@ export default function SetupProfileScreen() {
         await auth.login(tempToken, data.user);
       }
 
-      Alert.alert("Profile Complete 🎉", "Your SkillVerse profile has been created.", [
-        {
-          text: "Continue",
-          onPress: () => router.replace(`/dashboard?userId=${data.user.id}`),
-        },
-      ]);
+      // Navigate immediately — no Alert blocking the transition.
+      // router.replace so the back button never returns to setup-profile.
+      router.replace("/home");
     } catch (error) {
       console.error("PROFILE SAVE ERROR:", error);
       Alert.alert("Error", error instanceof Error ? error.message : "Could not save your profile.");

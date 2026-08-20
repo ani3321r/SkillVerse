@@ -2,9 +2,14 @@
 // CENTRAL API SERVICE
 // Single source of truth for the base URL
 // and authenticated fetch calls.
+//
+// Set EXPO_PUBLIC_API_URL in client/.env to
+// point at a hosted server (e.g. for device
+// testing).  Falls back to localhost:5000.
 // ============================================
 
-export const API_URL = "http://localhost:5000";
+export const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:5000";
 
 // ============================================
 // AUTHENTICATED FETCH

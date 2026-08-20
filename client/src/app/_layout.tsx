@@ -22,22 +22,28 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
 
-    const currentRoute = segments[0] ?? "";
+    // segments[0] is "" when expo-router hasn't resolved yet, or when
+    // the app is at the root "/" — both map to the index (landing) page.
+    const currentRoute = segments[0] || "index";
 
-    // Public routes that don't need a token
-    const publicRoutes = ["login", "index", "setup-profile"];
+    // Routes that are always accessible without a token
+    const publicRoutes = ["index", "login", "setup-profile"];
     const isPublic = publicRoutes.includes(currentRoute);
 
     if (!token && !isPublic) {
-      // Not logged in → kick to login
+      // Not logged in and trying to access a protected screen → login
       router.replace("/login");
       return;
     }
 
-    if (token && (currentRoute === "login" || currentRoute === "index")) {
-      // Already logged in → skip login/landing
-      router.replace(`/dashboard?userId=${userId}`);
+    if (token && currentRoute === "login") {
+      // Already logged in, no need to show the login screen again
+      router.replace("/home");
     }
+
+    // NOTE: index (landing page) is intentionally kept accessible even
+    // when the user is logged in — they can navigate away manually.
+    // This lets the landing page always render for logged-out visitors.
   }, [token, isLoading, segments]);
 
   if (isLoading) {

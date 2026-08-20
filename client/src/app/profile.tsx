@@ -171,7 +171,7 @@ export default function ProfileScreen() {
           <Text style={styles.navLabel}>Browse Skills</Text>
           <Text style={styles.navArrow}>→</Text>
         </Pressable>
-        <Pressable style={styles.navRow} onPress={() => router.push("/feed")}>
+        <Pressable style={styles.navRow} onPress={() => router.push("/home")}>
           <Text style={styles.navIcon}>🌐</Text>
           <Text style={styles.navLabel}>Community Feed</Text>
           <Text style={styles.navArrow}>→</Text>
