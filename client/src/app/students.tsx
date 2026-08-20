@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView,
-  TextInput, Pressable, ActivityIndicator,
+  View, Text, StyleSheet, Pressable,
+  TextInput, ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 
+import AppLayout from "../components/app-layout";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../services/api";
 
@@ -16,149 +17,117 @@ type Student = {
 
 export default function StudentsScreen() {
   const { token } = useAuth();
-  const [students, setStudents] = useState<Student[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [students,  setStudents]  = useState<Student[]>([]);
+  const [search,    setSearch]    = useState("");
+  const [loading,   setLoading]   = useState(true);
   const [searching, setSearching] = useState(false);
 
   const loadStudents = async () => {
     try {
       setLoading(true);
-      const res = await apiFetch("/api/students", token);
+      const res  = await apiFetch("/api/students", token);
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
       setStudents(data.students);
-    } catch (error) {
-      console.error("Student loading error:", error);
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* silent */ }
+    finally { setLoading(false); }
   };
 
   const searchStudents = async (text: string) => {
     setSearch(text);
     if (!text.trim()) { loadStudents(); return; }
-
     try {
       setSearching(true);
-      const res = await apiFetch(`/api/students/search?q=${encodeURIComponent(text)}`, token);
+      const res  = await apiFetch(`/api/students/search?q=${encodeURIComponent(text)}`, token);
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
       setStudents(data.students);
-    } catch (error) {
-      console.error("Search error:", error);
-    } finally {
-      setSearching(false);
-    }
+    } catch { /* silent */ }
+    finally { setSearching(false); }
   };
 
   useEffect(() => { loadStudents(); }, [token]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={styles.loadingText}>Finding students...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Pressable onPress={() => router.back()}>
-        <Text style={styles.back}>← Back</Text>
-      </Pressable>
+    <AppLayout>
+      <View style={s.header}>
+        <Text style={s.title}>Discover Students</Text>
+        <Text style={s.subtitle}>Find students, explore their skills, and connect with people learning similar things.</Text>
+      </View>
 
-      <Text style={styles.title}>Discover Students</Text>
-      <Text style={styles.subtitle}>
-        Find students, explore their skills, and connect with people learning similar things.
-      </Text>
-
-      <View style={styles.searchContainer}>
+      <View style={s.searchRow}>
         <TextInput
-          style={styles.searchInput}
+          style={s.searchInput}
           value={search}
           onChangeText={searchStudents}
           placeholder="Search by name, skill, college..."
           placeholderTextColor="#94A3B8"
         />
-        {searching && <ActivityIndicator size="small" color="#2563EB" />}
+        {searching && <ActivityIndicator size="small" color="#1456F0" style={{ marginLeft: 10 }}/>}
       </View>
 
-      <Text style={styles.resultCount}>
-        {students.length} student{students.length !== 1 ? "s" : ""} found
-      </Text>
+      <Text style={s.count}>{loading ? "Loading…" : `${students.length} student${students.length !== 1 ? "s" : ""} found`}</Text>
 
-      {students.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No students found</Text>
-          <Text style={styles.emptyText}>Try searching with another name, skill, college, or location.</Text>
+      {loading ? (
+        <View style={s.loadBox}><ActivityIndicator size="large" color="#1456F0"/></View>
+      ) : students.length === 0 ? (
+        <View style={s.emptyCard}>
+          <Text style={s.emptyTitle}>No students found</Text>
+          <Text style={s.emptyText}>Try searching with another name, skill, college, or location.</Text>
         </View>
       ) : (
-        students.map(student => (
-          <View key={student.id} style={styles.studentCard}>
-            <View style={styles.studentHeader}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{student.name?.charAt(0)?.toUpperCase()}</Text>
-              </View>
-              <View style={styles.studentInfo}>
-                <Text style={styles.studentName}>{student.name}</Text>
-                <Text style={styles.department}>{student.department}</Text>
+        students.map(st => (
+          <View key={st.id} style={s.card}>
+            <View style={s.cardHead}>
+              <View style={s.avatar}><Text style={s.avatarTxt}>{st.name?.charAt(0)?.toUpperCase()}</Text></View>
+              <View style={s.info}>
+                <Text style={s.name}>{st.name}</Text>
+                <Text style={s.dept}>{st.department}</Text>
               </View>
             </View>
-
-            <Text style={styles.detail}>🎓 {student.college}</Text>
-            <Text style={styles.detail}>📍 {student.location}</Text>
-            <Text style={styles.detail}>📚 {student.year}</Text>
-
-            <Text style={styles.skillsLabel}>Skills</Text>
-            <View style={styles.skillsContainer}>
-              {student.skills?.map((skill, index) => (
-                <View key={index} style={styles.skillBadge}>
-                  <Text style={styles.skillText}>{skill}</Text>
-                </View>
-              ))}
+            <Text style={s.detail}>🎓 {st.college}</Text>
+            <Text style={s.detail}>📍 {st.location}</Text>
+            <Text style={s.detail}>📚 {st.year}</Text>
+            <Text style={s.skillsLabel}>Skills</Text>
+            <View style={s.skillsRow}>
+              {st.skills?.map((sk, i) => <View key={i} style={s.chip}><Text style={s.chipTxt}>{sk}</Text></View>)}
             </View>
-
             <Pressable
-              style={styles.profileButton}
-              onPress={() => router.push({ pathname: "/student-profile", params: { id: String(student.id) } })}
+              style={s.viewBtn}
+              onPress={() => router.push({ pathname: "/student-profile", params: { id: String(st.id) } })}
             >
-              <Text style={styles.profileButtonText}>View Profile →</Text>
+              <Text style={s.viewTxt}>View Profile →</Text>
             </Pressable>
           </View>
         ))
       )}
-    </ScrollView>
+    </AppLayout>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F7F9FC" },
-  content: { padding: 25, paddingBottom: 60, maxWidth: 1100, width: "100%", alignSelf: "center" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#F7F9FC" },
-  loadingText: { marginTop: 12, color: "#64748B" },
-  back: { color: "#2563EB", fontSize: 16, fontWeight: "700", marginBottom: 25 },
-  title: { fontSize: 32, fontWeight: "900", color: "#111827" },
-  subtitle: { marginTop: 10, fontSize: 15, lineHeight: 23, color: "#64748B", maxWidth: 700 },
-  searchContainer: { marginTop: 25, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#CBD5E1", borderRadius: 15, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" },
-  searchInput: { flex: 1, height: 44, fontSize: 16, color: "#111827" },
-  resultCount: { marginTop: 20, marginBottom: 15, color: "#64748B", fontSize: 14, fontWeight: "600" },
-  studentCard: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 18, padding: 20, marginBottom: 16 },
-  studentHeader: { flexDirection: "row", alignItems: "center" },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#DBEAFE", justifyContent: "center", alignItems: "center" },
-  avatarText: { fontSize: 20, fontWeight: "900", color: "#2563EB" },
-  studentInfo: { marginLeft: 14 },
-  studentName: { fontSize: 19, fontWeight: "800", color: "#111827" },
-  department: { marginTop: 3, fontSize: 14, color: "#64748B" },
-  detail: { marginTop: 10, fontSize: 14, color: "#475569" },
-  skillsLabel: { marginTop: 18, fontSize: 14, fontWeight: "800", color: "#334155" },
-  skillsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 9 },
-  skillBadge: { backgroundColor: "#EFF6FF", borderRadius: 20, paddingHorizontal: 11, paddingVertical: 6 },
-  skillText: { color: "#1D4ED8", fontSize: 12, fontWeight: "700" },
-  profileButton: { marginTop: 18, height: 45, borderRadius: 12, backgroundColor: "#2563EB", justifyContent: "center", alignItems: "center" },
-  profileButtonText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
-  emptyCard: { marginTop: 15, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 18, padding: 30, alignItems: "center" },
-  emptyTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  emptyText: { marginTop: 8, textAlign: "center", color: "#64748B", lineHeight: 21 },
+const s = StyleSheet.create({
+  header:     { marginBottom: 22 },
+  title:      { fontSize: 28, fontWeight: "800", color: "#0B1D3C" },
+  subtitle:   { marginTop: 6, fontSize: 14, color: "#64748B", maxWidth: 680 },
+  searchRow:  { height: 50, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8ECF2", borderRadius: 12, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, marginBottom: 16 },
+  searchInput:{ flex: 1, fontSize: 14, color: "#111827" },
+  count:      { fontSize: 13, fontWeight: "700", color: "#334155", marginBottom: 14 },
+  loadBox:    { paddingVertical: 50, alignItems: "center" },
+  emptyCard:  { backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E8ECF2", padding: 36, alignItems: "center" },
+  emptyTitle: { fontSize: 17, fontWeight: "800", color: "#0B1D3C" },
+  emptyText:  { marginTop: 8, fontSize: 13, color: "#64748B", textAlign: "center" },
+  card:       { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8ECF2", borderRadius: 16, padding: 18, marginBottom: 14 },
+  cardHead:   { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  avatar:     { width: 48, height: 48, borderRadius: 24, backgroundColor: "#EAF0FE", justifyContent: "center", alignItems: "center" },
+  avatarTxt:  { fontSize: 20, fontWeight: "900", color: "#1456F0" },
+  info:       { marginLeft: 12 },
+  name:       { fontSize: 16, fontWeight: "800", color: "#0B1D3C" },
+  dept:       { marginTop: 3, fontSize: 12, color: "#64748B" },
+  detail:     { marginTop: 7, fontSize: 13, color: "#475569" },
+  skillsLabel:{ marginTop: 14, fontSize: 12, fontWeight: "800", color: "#334155" },
+  skillsRow:  { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 7 },
+  chip:       { backgroundColor: "#EAF0FE", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  chipTxt:    { color: "#1456F0", fontSize: 11, fontWeight: "700" },
+  viewBtn:    { marginTop: 14, height: 44, borderRadius: 10, backgroundColor: "#1456F0", justifyContent: "center", alignItems: "center" },
+  viewTxt:    { color: "#FFFFFF", fontWeight: "800", fontSize: 13 },
 });

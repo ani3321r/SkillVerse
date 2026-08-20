@@ -158,7 +158,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Assignments",   route: "/assignments",   Icon: IconAssignments },
   { label: "Hackathons",    route: "/hackathons",    Icon: IconHackathon },
   { label: "Explore",       route: "/explore",       Icon: IconExplore },
-  { label: "Students",      route: "/students",      Icon: IconStudents },
   { label: "Chat",          route: "/chat",          Icon: IconChat },
   { label: "Bookmarks",     route: "/bookmarks",     Icon: IconBookmark },
   { label: "Notifications", route: "/notifications", Icon: IconBell },

@@ -6,148 +6,79 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { io, Socket } from "socket.io-client";
 
+import AppLayout from "../components/app-layout";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, API_URL } from "../services/api";
 
-const SOCKET_URL = API_URL;
-
 type Message = {
-  id: number;
-  conversation_id: number;
-  sender_id: number;
-  message: string;
-  created_at: string;
+  id: number; conversation_id: number;
+  sender_id: number; message: string; created_at: string;
 };
 
 export default function ChatScreen() {
-  const params = useLocalSearchParams();
-  const { token, userId: currentUserId } = useAuth();
+  const params               = useLocalSearchParams();
+  const { token, userId }    = useAuth();
 
   const targetUserId = Number(params.userId);
-  const targetName = String(params.name || "Student");
+  const targetName   = String(params.name || "Student");
 
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState("");
-  const [loading, setLoading] = useState(true);
-
+  const [messages,       setMessages]       = useState<Message[]>([]);
+  const [text,           setText]           = useState("");
+  const [loading,        setLoading]        = useState(true);
   const socketRef = useRef<Socket | null>(null);
 
-  // =================================================
-  // CREATE / GET CONVERSATION
-  // =================================================
-
-  const createConversation = async () => {
-    try {
-      const res = await apiFetch("/api/chat/conversations", token, {
-        method: "POST",
-        body: JSON.stringify({ otherUserId: targetUserId }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message);
-      return data.conversationId as number;
-    } catch (error) {
-      console.error("Conversation error:", error);
-      return null;
-    }
-  };
-
-  // =================================================
-  // LOAD MESSAGES
-  // =================================================
-
-  const loadMessages = async (id: number) => {
-    try {
-      const res = await apiFetch(
-        `/api/chat/conversations/${id}/messages`,
-        token
-      );
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message);
-      setMessages(data.messages);
-    } catch (error) {
-      console.error("Load messages error:", error);
-    }
-  };
-
-  // =================================================
-  // INITIALIZE
-  // =================================================
-
+  /* ── Init conversation + socket ── */
   useEffect(() => {
     let mounted = true;
+    const init = async () => {
+      if (!userId || !targetUserId || userId === targetUserId) { setLoading(false); return; }
 
-    const initialize = async () => {
-      if (!currentUserId || !targetUserId || currentUserId === targetUserId) {
-        setLoading(false);
-        return;
-      }
-
-      const id = await createConversation();
-      if (!id || !mounted) { setLoading(false); return; }
-
-      setConversationId(id);
-      await loadMessages(id);
-      if (!mounted) return;
-
-      // Connect Socket.IO
-      const socket = io(SOCKET_URL);
-      socketRef.current = socket;
-
-      socket.on("connect", () => {
-        socket.emit("join-user", currentUserId);
-        socket.emit("join-conversation", { conversationId: id, userId: currentUserId });
-      });
-
-      socket.on("new-message", (newMessage: Message) => {
-        setMessages(prev => {
-          if (prev.some(m => m.id === newMessage.id)) return prev;
-          return [...prev, newMessage];
+      try {
+        const res  = await apiFetch("/api/chat/conversations", token, {
+          method: "POST",
+          body: JSON.stringify({ otherUserId: targetUserId }),
         });
-      });
+        const data = await res.json();
+        if (!data.success || !mounted) { setLoading(false); return; }
 
-      setLoading(false);
+        const id = data.conversationId as number;
+        setConversationId(id);
+
+        const msgRes  = await apiFetch(`/api/chat/conversations/${id}/messages`, token);
+        const msgData = await msgRes.json();
+        if (msgData.success && mounted) setMessages(msgData.messages);
+
+        const socket = io(API_URL);
+        socketRef.current = socket;
+        socket.on("connect", () => {
+          socket.emit("join-user", userId);
+          socket.emit("join-conversation", { conversationId: id, userId });
+        });
+        socket.on("new-message", (msg: Message) => {
+          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        });
+      } catch { /* silent */ }
+      finally { if (mounted) setLoading(false); }
     };
-
-    initialize();
-
-    return () => {
-      mounted = false;
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
-  }, [currentUserId, targetUserId, token]);
-
-  // =================================================
-  // SEND MESSAGE
-  // =================================================
+    init();
+    return () => { mounted = false; socketRef.current?.disconnect(); socketRef.current = null; };
+  }, [userId, targetUserId, token]);
 
   const sendMessage = () => {
     const trimmed = text.trim();
-    if (!trimmed || !conversationId || !socketRef.current || !currentUserId) return;
-
-    socketRef.current.emit("send-message", {
-      conversationId,
-      senderId: currentUserId,
-      message: trimmed,
-    });
-
+    if (!trimmed || !conversationId || !socketRef.current || !userId) return;
+    socketRef.current.emit("send-message", { conversationId, senderId: userId, message: trimmed });
     setText("");
   };
 
-  // =================================================
-  // RENDER MESSAGE
-  // =================================================
-
-  const renderMessage = ({ item }: { item: Message }) => {
-    const mine = item.sender_id === currentUserId;
+  const renderMsg = ({ item }: { item: Message }) => {
+    const mine = item.sender_id === userId;
     return (
-      <View style={[styles.messageRow, mine ? styles.myRow : styles.otherRow]}>
-        <View style={[styles.bubble, mine ? styles.myBubble : styles.otherBubble]}>
-          <Text style={[styles.messageText, mine ? styles.myText : styles.otherText]}>
-            {item.message}
-          </Text>
-          <Text style={[styles.time, mine ? styles.myTime : styles.otherTime]}>
+      <View style={[s.msgRow, mine ? s.myRow : s.otherRow]}>
+        <View style={[s.bubble, mine ? s.myBubble : s.otherBubble]}>
+          <Text style={[s.msgTxt, mine ? s.myTxt : s.otherTxt]}>{item.message}</Text>
+          <Text style={[s.time, mine ? s.myTime : s.otherTime]}>
             {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
         </View>
@@ -155,95 +86,92 @@ export default function ChatScreen() {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={styles.loading}>Opening chat...</Text>
-      </View>
-    );
-  }
-
+  /* Chat wraps AppLayout with scrollable=false so it manages its own layout */
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {/* HEADER */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>←</Text>
-        </Pressable>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName}>{targetName}</Text>
-          <Text style={styles.headerStatus}>SkillVerse student</Text>
-        </View>
-      </View>
-
-      {/* MESSAGES */}
-      <FlatList
-        data={messages}
-        keyExtractor={item => String(item.id)}
-        renderItem={renderMessage}
-        contentContainerStyle={styles.messageList}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Start the conversation 👋</Text>
-            <Text style={styles.emptyText}>Say hello and connect with {targetName}.</Text>
+    <AppLayout scrollable={false}>
+      <KeyboardAvoidingView
+        style={s.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* Chat header */}
+        <View style={s.chatHeader}>
+          <View style={s.chatAvatar}>
+            <Text style={s.chatAvatarTxt}>{targetName.charAt(0).toUpperCase()}</Text>
           </View>
-        }
-      />
+          <View>
+            <Text style={s.chatName}>{targetName}</Text>
+            <Text style={s.chatStatus}>SkillVerse student</Text>
+          </View>
+        </View>
 
-      {/* INPUT */}
-      <View style={styles.inputContainer}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder="Write a message..."
-          placeholderTextColor="#94A3B8"
-          style={styles.input}
-          multiline
-        />
-        <Pressable
-          onPress={sendMessage}
-          disabled={!text.trim()}
-          style={[styles.sendButton, !text.trim() && styles.sendDisabled]}
-        >
-          <Text style={styles.sendText}>➤</Text>
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+        {/* Messages */}
+        {loading ? (
+          <View style={s.loadBox}><ActivityIndicator size="large" color="#1456F0"/></View>
+        ) : (
+          <FlatList
+            data={messages}
+            keyExtractor={item => String(item.id)}
+            renderItem={renderMsg}
+            contentContainerStyle={s.msgList}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyTitle}>Start the conversation 👋</Text>
+                <Text style={s.emptyTxt}>Say hello and connect with {targetName}.</Text>
+              </View>
+            }
+          />
+        )}
+
+        {/* Input */}
+        <View style={s.inputRow}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder="Write a message..."
+            placeholderTextColor="#94A3B8"
+            style={s.input}
+            multiline
+          />
+          <Pressable
+            onPress={sendMessage}
+            disabled={!text.trim()}
+            style={[s.sendBtn, !text.trim() && s.sendDis]}
+          >
+            <Text style={s.sendTxt}>➤</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </AppLayout>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F7F9FC" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#F7F9FC" },
-  loading: { marginTop: 12, color: "#64748B" },
-  header: { height: 72, flexDirection: "row", alignItems: "center", paddingHorizontal: 20, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E2E8F0" },
-  back: { fontSize: 30, color: "#2563EB", marginRight: 16 },
-  headerInfo: { flex: 1 },
-  headerName: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  headerStatus: { marginTop: 3, fontSize: 12, color: "#22C55E" },
-  messageList: { padding: 16, flexGrow: 1 },
-  messageRow: { flexDirection: "row", marginBottom: 10 },
-  myRow: { justifyContent: "flex-end" },
-  otherRow: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "75%", paddingHorizontal: 15, paddingVertical: 10, borderRadius: 18 },
-  myBubble: { backgroundColor: "#2563EB", borderBottomRightRadius: 5 },
+const s = StyleSheet.create({
+  flex:        { flex: 1 },
+  chatHeader:  { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E8ECF2" },
+  chatAvatar:  { width: 40, height: 40, borderRadius: 20, backgroundColor: "#1456F0", justifyContent: "center", alignItems: "center" },
+  chatAvatarTxt:{ color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
+  chatName:    { fontSize: 15, fontWeight: "800", color: "#0B1D3C" },
+  chatStatus:  { fontSize: 11, color: "#22C55E", marginTop: 2 },
+  loadBox:     { flex: 1, justifyContent: "center", alignItems: "center" },
+  msgList:     { padding: 16, flexGrow: 1 },
+  msgRow:      { flexDirection: "row", marginBottom: 10 },
+  myRow:       { justifyContent: "flex-end" },
+  otherRow:    { justifyContent: "flex-start" },
+  bubble:      { maxWidth: "75%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
+  myBubble:    { backgroundColor: "#1456F0", borderBottomRightRadius: 5 },
   otherBubble: { backgroundColor: "#E2E8F0", borderBottomLeftRadius: 5 },
-  messageText: { fontSize: 15, lineHeight: 21 },
-  myText: { color: "#FFFFFF" },
-  otherText: { color: "#111827" },
-  time: { marginTop: 4, fontSize: 10 },
-  myTime: { color: "#DBEAFE", textAlign: "right" },
-  otherTime: { color: "#64748B" },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
-  emptyTitle: { fontSize: 18, fontWeight: "800", color: "#111827", marginBottom: 8 },
-  emptyText: { textAlign: "center", color: "#64748B", lineHeight: 21 },
-  inputContainer: { flexDirection: "row", alignItems: "flex-end", padding: 12, gap: 10, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: "#E2E8F0" },
-  input: { flex: 1, minHeight: 46, maxHeight: 120, backgroundColor: "#F1F5F9", borderRadius: 23, paddingHorizontal: 18, paddingVertical: 12, fontSize: 15, color: "#111827" },
-  sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#2563EB", justifyContent: "center", alignItems: "center" },
-  sendDisabled: { opacity: 0.4 },
-  sendText: { color: "#FFFFFF", fontSize: 20 },
+  msgTxt:      { fontSize: 14, lineHeight: 20 },
+  myTxt:       { color: "#FFFFFF" },
+  otherTxt:    { color: "#111827" },
+  time:        { marginTop: 4, fontSize: 10 },
+  myTime:      { color: "#DBEAFE", textAlign: "right" },
+  otherTime:   { color: "#64748B" },
+  empty:       { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
+  emptyTitle:  { fontSize: 17, fontWeight: "800", color: "#0B1D3C", marginBottom: 8 },
+  emptyTxt:    { textAlign: "center", color: "#64748B", lineHeight: 21 },
+  inputRow:    { flexDirection: "row", alignItems: "flex-end", padding: 12, gap: 10, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: "#E8ECF2" },
+  input:       { flex: 1, minHeight: 44, maxHeight: 120, backgroundColor: "#F1F5F9", borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: "#111827" },
+  sendBtn:     { width: 44, height: 44, borderRadius: 22, backgroundColor: "#1456F0", justifyContent: "center", alignItems: "center" },
+  sendDis:     { opacity: 0.4 },
+  sendTxt:     { color: "#FFFFFF", fontSize: 18 },
 });
