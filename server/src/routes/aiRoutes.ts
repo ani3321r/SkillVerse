@@ -10,7 +10,7 @@ const ai = new GoogleGenAI({
 });
 
 // Use a stable, available Gemini model name
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 // ============================================
 // GENERATE ASSIGNMENT  (protected)
