@@ -274,7 +274,7 @@ export default function SetupProfileScreen() {
       Alert.alert("Profile Complete 🎉", "Your SkillVerse profile has been created.", [
         {
           text: "Continue",
-          onPress: () => router.replace("/home"),
+          onPress: () => router.replace(`/dashboard?userId=${data.user.id}`),
         },
       ]);
     } catch (error) {

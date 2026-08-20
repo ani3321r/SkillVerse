@@ -226,9 +226,10 @@ export default function LoginScreen() {
           )}&token=${encodeURIComponent(data.token)}`
         );
       } else {
-        // Existing user — save session and go to home
-        await auth.login(data.token, data.user);
-        router.replace("/home");
+  // Existing user
+  router.replace(
+    `/home?userId=${data.user.id}`
+  );
       }
     } catch (error) {
       console.error("GOOGLE LOGIN ERROR:", error);

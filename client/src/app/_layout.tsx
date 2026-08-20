@@ -35,8 +35,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
 
     if (token && (currentRoute === "login" || currentRoute === "index")) {
-      // Already logged in → go to home
-      router.replace("/home");
+      // Already logged in → skip login/landing
+      router.replace(`/dashboard?userId=${userId}`);
     }
   }, [token, isLoading, segments]);
 

@@ -5,12 +5,11 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
+  Image,
   TextInput,
   ActivityIndicator,
-  Alert,
-  useWindowDimensions,
 } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import Svg, { Path, Circle, Rect, Line, Polyline } from "react-native-svg";
 import {
   useFonts,
@@ -22,8 +21,6 @@ import {
 } from "@expo-google-fonts/plus-jakarta-sans";
 
 import SidebarNav from "../components/sidebar-nav";
-import { useAuth } from "../context/AuthContext";
-import { apiFetch } from "../services/api";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -51,10 +48,11 @@ const COLORS = {
   purpleSoft: "#F1EAFE",
   orange: "#F59E0B",
   orangeSoft: "#FEF1DD",
+  red: "#EF4444",
 };
 
 /* ---------------------------------------------------------
-   ICONS
+   ICONS  (unchanged — same set as before)
 --------------------------------------------------------- */
 function LogoMark({ size = 34 }: { size?: number }) {
   return (
@@ -126,6 +124,15 @@ function IconCodeBrackets({ size = 16, color = COLORS.purple }) {
     </Svg>
   );
 }
+function IconPoll({ size = 16, color = COLORS.orange }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Line x1={5} y1={20} x2={5} y2={13} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
+      <Line x1={12} y1={20} x2={12} y2={7} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
+      <Line x1={19} y1={20} x2={19} y2={10} stroke={color} strokeWidth={2.4} strokeLinecap="round" />
+    </Svg>
+  );
+}
 function IconLink({ size = 16, color = COLORS.primary }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -171,6 +178,13 @@ function IconShare({ size = 16, color = COLORS.slate }) {
     </Svg>
   );
 }
+function IconBookmarkOutline({ size = 18, color = COLORS.slate }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 4h12v17l-6-4-6 4V4z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+    </Svg>
+  );
+}
 function IconDots({ size = 18, color = COLORS.slate }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -180,11 +194,10 @@ function IconDots({ size = 18, color = COLORS.slate }) {
     </Svg>
   );
 }
-function IconX({ size = 14, color = COLORS.slate }) {
+function IconPlay({ size = 22 }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Line x1={6} y1={6} x2={18} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Line x1={18} y1={6} x2={6} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8 5v14l11-7-11-7z" fill="#FFFFFF" />
     </Svg>
   );
 }
@@ -222,25 +235,63 @@ function IconRefresh({ size = 16, color = COLORS.primary }) {
     </Svg>
   );
 }
+function IconX({ size = 14, color = COLORS.slate }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Line x1={6} y1={6} x2={18} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={18} y1={6} x2={6} y2={18} stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 /* ---------------------------------------------------------
-   TYPES
+   PROFILE — fetched, not hardcoded.
+   Swap the body of fetchProfile() for your real endpoint:
+     const res = await fetch(`${API_BASE}/api/profile/me`);
+     return res.json();
 --------------------------------------------------------- */
-type FeedPost = {
-  id: number;
-  content: string;
-  image_url: string | null;
-  created_at: string;
-  updated_at: string;
-  user_id: number;
-  user_name: string;
-  user_email: string;
-  college: string;
-  department: string;
-  avatar_url: string | null;
-  like_count: number;
-  comment_count: number;
+type Profile = {
+  id: string;
+  name: string;
+  avatar: string;
+  dept: string;
+  level: number;
+  levelLabel: string;
+  xp: number;
+  xpMax: number;
 };
+
+async function fetchProfile(): Promise<Profile> {
+  await new Promise((r) => setTimeout(r, 350)); // simulate network
+  return {
+    id: "u_current",
+    name: "Alex Carter",
+    avatar: "https://i.pravatar.cc/100?img=68",
+    dept: "Computer Science",
+    level: 6,
+    levelLabel: "Advanced Learner",
+    xp: 3200,
+    xpMax: 4000,
+  };
+}
+
+/* ---------------------------------------------------------
+   MOCK FEED DATA
+--------------------------------------------------------- */
+const TABS = ["All", "Discussions", "Projects", "Announcements", "Events", "Resources"];
+
+const TRENDING = [
+  { tag: "WebDevelopment", count: "12.1K posts" },
+  { tag: "MachineLearning", count: "8.7K posts" },
+  { tag: "ReactJS", count: "7.3K posts" },
+  { tag: "Hackathon", count: "6.2K posts" },
+  { tag: "OpenSource", count: "5.1K posts" },
+];
+
+const EVENTS = [
+  { month: "JUN", day: "20", title: "AI Innovation Challenge", subtitle: "Online Hackathon", date: "20 Jun \u2013 22 Jun, 2025" },
+  { month: "JUL", day: "05", title: "Web Dev Bootcamp", subtitle: "Online Workshop", date: "5 Jul, 2025 \u00b7 6:00 PM" },
+];
 
 const QUICK_LINKS = [
   { label: "Find Study Groups", Icon: IconUsersSmall },
@@ -249,20 +300,68 @@ const QUICK_LINKS = [
   { label: "Practice Skills", Icon: IconRefresh },
 ];
 
+type Post = {
+  id: string;
+  name: string;
+  badge: { label: string; color: string; bg: string };
+  time: string;
+  dept: string;
+  avatar: string;
+  text: string;
+  linkCard?: { image: string; title: string; description: string; url: string };
+  video?: string;
+  likes: number;
+  comments: number;
+  liked?: boolean;
+};
+
+const FEED_POSTS: Post[] = [
+  {
+    id: "1",
+    name: "Riya Sharma",
+    badge: { label: "Top Contributor", color: COLORS.purple, bg: COLORS.purpleSoft },
+    time: "2h ago",
+    dept: "Computer Science",
+    avatar: "https://i.pravatar.cc/100?img=47",
+    text: "Just finished building my portfolio website! \ud83d\ude80\nWould love your feedback on the design and functionality.",
+    linkCard: {
+      image: "https://images.unsplash.com/photo-1547658719-da2b51169166?w=600&q=80",
+      title: "My Portfolio",
+      description: "A modern portfolio website built with React and Tailwind CSS.",
+      url: "riyasharma.dev",
+    },
+    likes: 24,
+    comments: 6,
+  },
+  {
+    id: "2",
+    name: "Arjun Mehta",
+    badge: { label: "Student", color: COLORS.green, bg: COLORS.greenSoft },
+    time: "5h ago",
+    dept: "Electronics & Communication",
+    avatar: "https://i.pravatar.cc/100?img=12",
+    text: "Working on an IoT based smart plant watering system using ESP32 and Soil Moisture Sensor. \ud83c\udf31\ud83d\udca7\nHere's a quick demo of the prototype:",
+    video: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=900&q=80",
+    likes: 41,
+    comments: 9,
+  },
+];
+
 /* ---------------------------------------------------------
    SCREEN
 --------------------------------------------------------- */
 export default function HomeScreen() {
-  const { user, token, userId, logout } = useAuth();
-  const { width } = useWindowDimensions();
-  const isDesktop = width >= 900;
+  const { userId } = useLocalSearchParams();
+  const [activeTab, setActiveTab] = useState("All");
 
-  // Feed state
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [feedLoading, setFeedLoading] = useState(true);
-  const [likedPosts, setLikedPosts] = useState<Set<number>>(new Set());
+  // profile state — fetched on mount
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
-  // Composer state
+  // feed state — starts from mock, grows with real posts
+  const [posts, setPosts] = useState<Post[]>(FEED_POSTS);
+
+  // composer state
   const [composerOpen, setComposerOpen] = useState(false);
   const [postText, setPostText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -275,134 +374,63 @@ export default function HomeScreen() {
     PlusJakartaSans_800ExtraBold,
   });
 
-  // ============================================
-  // LOAD FEED
-  // ============================================
+  useEffect(() => {
+    let active = true;
+    setProfileLoading(true);
+    fetchProfile()
+      .then((p) => {
+        if (active) setProfile(p);
+      })
+      .finally(() => {
+        if (active) setProfileLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
 
-  const loadFeed = useCallback(async () => {
-    if (!token) return;
-    try {
-      setFeedLoading(true);
-      const res = await apiFetch("/api/feed", token);
-      const data = await res.json();
-      if (data.success) {
-        setPosts(data.posts ?? []);
-      }
-    } catch (error) {
-      console.error("Feed load error:", error);
-    } finally {
-      setFeedLoading(false);
-    }
-  }, [token]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadFeed();
-    }, [loadFeed])
-  );
-
-  // ============================================
-  // CREATE POST
-  // ============================================
-
-  const handleCreatePost = useCallback(async () => {
+  const handleCreatePost = useCallback(() => {
     const trimmed = postText.trim();
-    if (!trimmed || !userId || !token) return;
-
+    if (!trimmed || !profile) return;
     setSubmitting(true);
-    try {
-      const res = await apiFetch("/api/feed", token, {
-        method: "POST",
-        body: JSON.stringify({ userId, content: trimmed }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message);
 
-      setPostText("");
-      setComposerOpen(false);
-      await loadFeed();
-    } catch (error) {
-      Alert.alert("Error", "Could not create post.");
-    } finally {
-      setSubmitting(false);
-    }
-  }, [postText, userId, token, loadFeed]);
+    const newPost: Post = {
+      id: `local_${Date.now()}`,
+      name: profile.name,
+      badge: { label: "You", color: COLORS.primary, bg: COLORS.primarySoft },
+      time: "Just now",
+      dept: profile.dept,
+      avatar: profile.avatar,
+      text: trimmed,
+      likes: 0,
+      comments: 0,
+    };
 
-  // ============================================
-  // LIKE
-  // ============================================
+    // Optimistic insert — swap for an actual POST /api/posts call,
+    // then reconcile the returned post id/timestamp here.
+    setPosts((prev) => [newPost, ...prev]);
+    setPostText("");
+    setComposerOpen(false);
+    setSubmitting(false);
+  }, [postText, profile]);
 
-  const toggleLike = useCallback(async (post: FeedPost) => {
-    if (!token) return;
-    try {
-      const res = await apiFetch(`/api/feed/${post.id}/like`, token, { method: "POST" });
-      const data = await res.json();
-      if (!data.success) return;
-
-      setLikedPosts(prev => {
-        const next = new Set(prev);
-        data.liked ? next.add(post.id) : next.delete(post.id);
-        return next;
-      });
-      setPosts(prev =>
-        prev.map(p =>
-          p.id === post.id
-            ? { ...p, like_count: p.like_count + (data.liked ? 1 : -1) }
-            : p
-        )
-      );
-    } catch { /* silent */ }
-  }, [token]);
-
-  // ============================================
-  // DELETE
-  // ============================================
-
-  const deletePost = useCallback((postId: number) => {
-    Alert.alert("Delete post", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete", style: "destructive",
-        onPress: async () => {
-          try {
-            await apiFetch(`/api/feed/${postId}`, token, { method: "DELETE" });
-            setPosts(prev => prev.filter(p => p.id !== postId));
-          } catch { /* silent */ }
-        },
-      },
-    ]);
-  }, [token]);
-
-  // ============================================
-  // HELPERS
-  // ============================================
-
-  const formatDate = (date: string) => {
-    const diff = Date.now() - new Date(date).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(date).toLocaleDateString();
-  };
-
-  const getInitials = (name: string) =>
-    name?.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+  const handleToggleLike = useCallback((id: string) => {
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 }
+          : p
+      )
+    );
+  }, []);
 
   if (!fontsLoaded) return <View style={styles.page} />;
 
-  const firstName = user?.name?.split(" ")[0] ?? "there";
-  const initials = user ? getInitials(user.name) : "?";
+  const firstName = profile?.name?.split(" ")[0] ?? "there";
 
   return (
     <View style={styles.page}>
-
-      {/* ============================================
-          HEADER
-      ============================================ */}
+      {/* HEADER */}
       <View style={styles.header}>
         <Pressable style={styles.logoRow} onPress={() => router.push("/home")}>
           <LogoMark size={30} />
@@ -414,17 +442,14 @@ export default function HomeScreen() {
         <View style={styles.searchBar}>
           <IconSearch />
           <TextInput
-            placeholder="Search posts, people, skills..."
+            placeholder="Search posts, people, skills, projects..."
             placeholderTextColor={COLORS.slate}
             style={styles.searchInput}
           />
         </View>
 
         <View style={styles.headerRight}>
-          <Pressable
-            style={styles.createPostBtn}
-            onPress={() => { setComposerOpen(true); }}
-          >
+          <Pressable style={styles.createPostBtn} onPress={() => setComposerOpen(true)}>
             <IconPlus />
             <Text style={styles.createPostText}>Create Post</Text>
           </Pressable>
@@ -432,45 +457,42 @@ export default function HomeScreen() {
           <Pressable style={styles.iconBtn}>
             <IconBell />
           </Pressable>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => router.push("/feed")}
-          >
+          <Pressable style={styles.iconBtn}>
             <IconChatBubble />
           </Pressable>
 
-          {/* AVATAR — tapping opens profile */}
-          <Pressable
-            style={styles.avatarCircle}
-            onPress={() => router.push("/profile")}
-          >
-            <Text style={styles.avatarInitials}>{initials}</Text>
+          <Pressable style={styles.avatarRow}>
+            <View>
+              {profileLoading ? (
+                <View style={[styles.avatarImg, styles.avatarSkeleton]} />
+              ) : (
+                <Image source={{ uri: profile!.avatar }} style={styles.avatarImg} />
+              )}
+              <View style={styles.onlineDot} />
+            </View>
+            <IconChevronDown />
           </Pressable>
         </View>
       </View>
 
-      {/* ============================================
-          BODY
-      ============================================ */}
+      {/* BODY */}
       <View style={styles.body}>
+        <SidebarNav
+          level={profile?.level}
+          levelLabel={profile?.levelLabel}
+          xp={profile?.xp}
+          xpMax={profile?.xpMax}
+        />
 
-        {/* SIDEBAR */}
-        {isDesktop && <SidebarNav />}
-
-        {/* MAIN FEED COLUMN */}
-        <ScrollView
-          style={styles.mainCol}
-          contentContainerStyle={styles.mainColContent}
-          showsVerticalScrollIndicator={false}
-        >
-
-          {/* COMPOSER CARD */}
+        <ScrollView style={styles.mainCol} contentContainerStyle={styles.mainColContent}>
+          {/* COMPOSER */}
           <View style={styles.card}>
             <View style={styles.composerTopRow}>
-              {/* My avatar */}
-              <View style={styles.composerAvatar}>
-                <Text style={styles.composerAvatarText}>{initials}</Text>
-              </View>
+              {profileLoading ? (
+                <View style={[styles.composerAvatar, styles.avatarSkeleton]} />
+              ) : (
+                <Image source={{ uri: profile!.avatar }} style={styles.composerAvatar} />
+              )}
 
               {composerOpen ? (
                 <TextInput
@@ -485,7 +507,7 @@ export default function HomeScreen() {
               ) : (
                 <Pressable style={{ flex: 1 }} onPress={() => setComposerOpen(true)}>
                   <Text style={styles.composerGreeting}>
-                    What's happening, {firstName}?
+                    {profileLoading ? "Loading..." : `What's happening, ${firstName}?`}
                   </Text>
                 </Pressable>
               )}
@@ -493,7 +515,10 @@ export default function HomeScreen() {
               {composerOpen && (
                 <Pressable
                   hitSlop={8}
-                  onPress={() => { setComposerOpen(false); setPostText(""); }}
+                  onPress={() => {
+                    setComposerOpen(false);
+                    setPostText("");
+                  }}
                 >
                   <IconX />
                 </Pressable>
@@ -511,185 +536,203 @@ export default function HomeScreen() {
                   disabled={!postText.trim() || submitting}
                   onPress={handleCreatePost}
                 >
-                  {submitting
-                    ? <ActivityIndicator size="small" color="#FFFFFF" />
-                    : <Text style={styles.postSubmitText}>Post</Text>
-                  }
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.postSubmitText}>Post</Text>
+                  )}
                 </Pressable>
               </View>
             ) : (
               <View style={styles.composerActionsRow}>
-                <ComposerAction Icon={IconTextT}       label="Text"    color={COLORS.primary} bg={COLORS.primarySoft} onPress={() => setComposerOpen(true)} />
-                <ComposerAction Icon={IconImage}       label="Image"   color={COLORS.green}   bg={COLORS.greenSoft} />
-                <ComposerAction Icon={IconCodeBrackets} label="Project" color={COLORS.purple}  bg={COLORS.purpleSoft} />
-                <ComposerAction Icon={IconLink}        label="Link"    color={COLORS.primary} bg={COLORS.primarySoft} />
+                <ComposerAction Icon={IconTextT} label="Text" color={COLORS.primary} bg={COLORS.primarySoft} onPress={() => setComposerOpen(true)} />
+                <ComposerAction Icon={IconImage} label="Image" color={COLORS.green} bg={COLORS.greenSoft} />
+                <ComposerAction Icon={IconCodeBrackets} label="Project" color={COLORS.purple} bg={COLORS.purpleSoft} />
+                <ComposerAction Icon={IconPoll} label="Poll" color={COLORS.orange} bg={COLORS.orangeSoft} />
+                <ComposerAction Icon={IconLink} label="Link" color={COLORS.primary} bg={COLORS.primarySoft} />
               </View>
             )}
           </View>
 
-          {/* FEED */}
-          {feedLoading ? (
-            <View style={styles.feedLoading}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-              <Text style={styles.feedLoadingText}>Loading feed...</Text>
+          {/* FILTER TABS */}
+          <View style={styles.tabsRow}>
+            <View style={styles.tabsGroup}>
+              {TABS.map((tab) => {
+                const active = tab === activeTab;
+                return (
+                  <Pressable
+                    key={tab}
+                    onPress={() => setActiveTab(tab)}
+                    style={[styles.tabPill, active && styles.tabPillActive]}
+                  >
+                    <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>
+                      {tab}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          ) : posts.length === 0 ? (
-            <View style={styles.emptyFeed}>
-              <Text style={styles.emptyFeedIcon}>✨</Text>
-              <Text style={styles.emptyFeedTitle}>No posts yet</Text>
-              <Text style={styles.emptyFeedText}>
-                Be the first to share something with the SkillVerse community.
-              </Text>
-            </View>
-          ) : (
-            posts.map(post => {
-              const liked = likedPosts.has(post.id);
-              const isMine = post.user_id === userId;
+            <Pressable style={styles.sortRow}>
+              <Text style={styles.sortText}>Most Recent</Text>
+              <IconChevronDown />
+            </Pressable>
+          </View>
 
-              return (
-                <View key={post.id} style={styles.card}>
-                  {/* POST HEADER */}
-                  <View style={styles.postHeaderRow}>
-                    {/* Avatar */}
-                    <View style={styles.postAvatarCircle}>
-                      <Text style={styles.postAvatarText}>
-                        {getInitials(post.user_name)}
+          {/* FEED */}
+          {posts.map((post) => (
+            <View key={post.id} style={styles.card}>
+              <View style={styles.postHeaderRow}>
+                <Image source={{ uri: post.avatar }} style={styles.postAvatar} />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.postNameRow}>
+                    <Text style={styles.postName}>{post.name}</Text>
+                    <View style={[styles.badge, { backgroundColor: post.badge.bg }]}>
+                      <View style={[styles.badgeDot, { backgroundColor: post.badge.color }]} />
+                      <Text style={[styles.badgeText, { color: post.badge.color }]}>
+                        {post.badge.label}
                       </Text>
                     </View>
-
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.postNameRow}>
-                        <Pressable onPress={() => router.push(`/student-profile?id=${post.user_id}`)}>
-                          <Text style={styles.postName}>{post.user_name}</Text>
-                        </Pressable>
-                        <View style={styles.deptBadge}>
-                          <Text style={styles.deptBadgeText}>{post.department || post.college}</Text>
-                        </View>
-                      </View>
-                      <Text style={styles.postMeta}>{formatDate(post.created_at)}</Text>
-                    </View>
-
-                    {isMine && (
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => deletePost(post.id)}
-                      >
-                        <IconDots />
-                      </Pressable>
-                    )}
                   </View>
+                  <Text style={styles.postMeta}>
+                    {post.time} · {post.dept}
+                  </Text>
+                </View>
+                <Pressable hitSlop={8}>
+                  <IconDots />
+                </Pressable>
+              </View>
 
-                  {/* CONTENT */}
-                  <Text style={styles.postText}>{post.content}</Text>
+              <Text style={styles.postText}>{post.text}</Text>
 
-                  {/* ACTIONS */}
-                  <View style={styles.postFooterRow}>
-                    <View style={styles.postFooterLeft}>
-                      <Pressable style={styles.footerAction} onPress={() => toggleLike(post)}>
-                        <IconThumbsUp filled={liked} />
-                        <Text style={[styles.footerActionText, liked && { color: COLORS.primary }]}>
-                          {post.like_count}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={styles.footerAction}
-                        onPress={() => router.push("/feed")}
-                      >
-                        <IconComment />
-                        <Text style={styles.footerActionText}>{post.comment_count}</Text>
-                      </Pressable>
-                      <Pressable style={styles.footerAction}>
-                        <IconShare />
-                        <Text style={styles.footerActionText}>Share</Text>
-                      </Pressable>
+              {post.linkCard && (
+                <View style={styles.linkCard}>
+                  <Image source={{ uri: post.linkCard.image }} style={styles.linkCardImage} />
+                  <View style={styles.linkCardInfo}>
+                    <Text style={styles.linkCardTitle}>{post.linkCard.title}</Text>
+                    <Text style={styles.linkCardDesc}>{post.linkCard.description}</Text>
+                    <View style={styles.linkCardUrlRow}>
+                      <IconLink size={13} />
+                      <Text style={styles.linkCardUrl}>{post.linkCard.url}</Text>
                     </View>
                   </View>
                 </View>
-              );
-            })
-          )}
+              )}
 
+              {post.video && (
+                <View style={styles.videoWrap}>
+                  <Image source={{ uri: post.video }} style={styles.videoImage} />
+                  <View style={styles.playButton}>
+                    <IconPlay />
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.postFooterRow}>
+                <View style={styles.postFooterLeft}>
+                  <Pressable style={styles.footerAction} onPress={() => handleToggleLike(post.id)}>
+                    <IconThumbsUp filled={!!post.liked} />
+                    <Text
+                      style={[
+                        styles.footerActionText,
+                        post.liked && { color: COLORS.primary },
+                      ]}
+                    >
+                      {post.likes}
+                    </Text>
+                  </Pressable>
+                  <Pressable style={styles.footerAction}>
+                    <IconComment />
+                    <Text style={styles.footerActionText}>{post.comments}</Text>
+                  </Pressable>
+                  <Pressable style={styles.footerAction}>
+                    <IconShare />
+                    <Text style={styles.footerActionText}>Share</Text>
+                  </Pressable>
+                </View>
+                <Pressable hitSlop={8}>
+                  <IconBookmarkOutline />
+                </Pressable>
+              </View>
+            </View>
+          ))}
         </ScrollView>
 
-        {/* ============================================
-            RIGHT RAIL
-        ============================================ */}
-        {isDesktop && (
-          <ScrollView
-            style={styles.rightCol}
-            contentContainerStyle={styles.rightColContent}
-            showsVerticalScrollIndicator={false}
-          >
-
-            {/* USER CARD */}
-            <View style={styles.card}>
-              <View style={styles.userCardHeader}>
-                <View style={styles.userCardAvatar}>
-                  <Text style={styles.userCardAvatarText}>{initials}</Text>
-                </View>
-                <View style={styles.userCardInfo}>
-                  <Text style={styles.userCardName} numberOfLines={1}>{user?.name ?? "—"}</Text>
-                  <Text style={styles.userCardSub} numberOfLines={1}>{user?.department ?? ""}</Text>
-                </View>
-              </View>
-
-              <View style={styles.userCardDivider} />
-
-              <UserRow label="College"  value={user?.college   ?? "—"} />
-              <UserRow label="Year"     value={user?.year      ?? "—"} />
-              <UserRow label="Location" value={user?.location  ?? "—"} />
-              <UserRow label="Interest" value={user?.interest  ?? "—"} />
-
-              <Pressable
-                style={styles.editProfileBtn}
-                onPress={() => router.push("/profile")}
-              >
-                <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+        {/* RIGHT RAIL — narrowed */}
+        <ScrollView style={styles.rightCol} contentContainerStyle={styles.rightColContent}>
+          <View style={styles.card}>
+            <View style={styles.railHeaderRow}>
+              <Text style={styles.railTitle}>Trending Topics</Text>
+              <Pressable>
+                <Text style={styles.railViewAll}>View all</Text>
               </Pressable>
             </View>
-
-            {/* QUICK LINKS */}
-            <View style={styles.card}>
-              <Text style={styles.railTitle}>Quick Links</Text>
-              <View style={{ marginTop: 8 }}>
-                {QUICK_LINKS.map(q => (
-                  <Pressable key={q.label} style={styles.quickLinkRow}>
-                    <View style={styles.quickLinkIconWrap}>
-                      <q.Icon />
-                    </View>
-                    <Text style={styles.quickLinkText} numberOfLines={1}>{q.label}</Text>
-                  </Pressable>
-                ))}
+            {TRENDING.map((t, i) => (
+              <View key={t.tag} style={[styles.trendingRow, i === 0 && { marginTop: 4 }]}>
+                <View style={styles.trendingLeft}>
+                  <View style={styles.hashCircle}>
+                    <IconHash />
+                  </View>
+                  <Text style={styles.trendingTag} numberOfLines={1}>{t.tag}</Text>
+                </View>
+                <Text style={styles.trendingCount}>{t.count}</Text>
               </View>
-            </View>
+            ))}
+          </View>
 
-            {/* NAVIGATE */}
-            <View style={styles.card}>
-              <Text style={styles.railTitle}>Navigate</Text>
-              <View style={{ marginTop: 8 }}>
-                <NavRow label="Dashboard"  onPress={() => router.push(`/dashboard?userId=${userId}`)} />
-                <NavRow label="My Skills"  onPress={() => router.push("/skills")} />
-                <NavRow label="Students"   onPress={() => router.push("/students")} />
-                <NavRow label="Hackathons" onPress={() => router.push("/hackathons")} />
+          <View style={styles.card}>
+            <View style={styles.railHeaderRow}>
+              <Text style={styles.railTitle}>Upcoming Events</Text>
+              <Pressable>
+                <Text style={styles.railViewAll}>View all</Text>
+              </Pressable>
+            </View>
+            {EVENTS.map((e, i) => (
+              <View key={e.title}>
+                <View style={styles.eventRow}>
+                  <View style={styles.dateBadge}>
+                    <Text style={styles.dateBadgeMonth}>{e.month}</Text>
+                    <Text style={styles.dateBadgeDay}>{e.day}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.eventTitle}>{e.title}</Text>
+                    <Text style={styles.eventSubtitle}>{e.subtitle}</Text>
+                    <Text style={styles.eventDate}>{e.date}</Text>
+                  </View>
+                </View>
+                {i < EVENTS.length - 1 && <View style={styles.eventDivider} />}
               </View>
-            </View>
+            ))}
+          </View>
 
-          </ScrollView>
-        )}
-
+          <View style={styles.card}>
+            <Text style={[styles.railTitle, { marginBottom: 10 }]}>Quick Links</Text>
+            {QUICK_LINKS.map((q) => (
+              <Pressable key={q.label} style={styles.quickLinkRow}>
+                <View style={styles.quickLinkIconWrap}>
+                  <q.Icon />
+                </View>
+                <Text style={styles.quickLinkText} numberOfLines={1}>{q.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
       </View>
     </View>
   );
 }
 
-/* ---------------------------------------------------------
-   SUB-COMPONENTS
---------------------------------------------------------- */
 function ComposerAction({
-  Icon, label, color, bg, onPress,
+  Icon,
+  label,
+  color,
+  bg,
+  onPress,
 }: {
   Icon: (p: { color: string; size?: number }) => JSX.Element;
-  label: string; color: string; bg: string; onPress?: () => void;
+  label: string;
+  color: string;
+  bg: string;
+  onPress?: () => void;
 }) {
   return (
     <Pressable style={styles.composerAction} onPress={onPress}>
@@ -701,37 +744,18 @@ function ComposerAction({
   );
 }
 
-function UserRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.userRow}>
-      <Text style={styles.userRowLabel}>{label}</Text>
-      <Text style={styles.userRowValue} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-function NavRow({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable style={styles.navRow} onPress={onPress}>
-      <Text style={styles.navRowText}>{label}</Text>
-      <Text style={styles.navRowArrow}>→</Text>
-    </Pressable>
-  );
-}
-
 /* ---------------------------------------------------------
    STYLES
 --------------------------------------------------------- */
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: COLORS.bg },
 
-  // ─── HEADER ───────────────────────────────────────────
   header: {
-    height: 64,
+    height: 68,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: 24,
+    gap: 24,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -741,8 +765,8 @@ const styles = StyleSheet.create({
   logoWordmarkBlue: { color: COLORS.primary },
   searchBar: {
     flex: 1,
-    maxWidth: 480,
-    height: 40,
+    maxWidth: 560,
+    height: 42,
     backgroundColor: "#F2F4F8",
     borderRadius: 10,
     flexDirection: "row",
@@ -757,90 +781,59 @@ const styles = StyleSheet.create({
     color: COLORS.navy,
     outlineStyle: "none" as any,
   },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginLeft: "auto",
-  },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 14, marginLeft: "auto" },
   createPostBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 14,
-    height: 38,
-    borderRadius: 9,
+    paddingHorizontal: 16,
+    height: 40,
+    borderRadius: 10,
   },
-  createPostText: { fontFamily: FONT.semibold, fontSize: 13, color: "#FFFFFF" },
+  createPostText: { fontFamily: FONT.semibold, fontSize: 13.5, color: "#FFFFFF" },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 9,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
+  avatarRow: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 4 },
+  avatarImg: { width: 36, height: 36, borderRadius: 18 },
+  avatarSkeleton: { backgroundColor: COLORS.border },
+  onlineDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#22C55E",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
-  avatarInitials: { fontFamily: FONT.bold, fontSize: 13, color: "#FFFFFF" },
 
-  // ─── BODY LAYOUT ──────────────────────────────────────
+  /* BODY LAYOUT */
   body: { flex: 1, flexDirection: "row" },
-
-  // ─── MAIN FEED COLUMN ─────────────────────────────────
   mainCol: { flex: 1 },
-  mainColContent: {
-    padding: 20,
-    gap: 16,
-    maxWidth: 760,
-    width: "100%",
-    alignSelf: "center",
-  },
+  mainColContent: { padding: 24, gap: 20, maxWidth: 860 },
+  // narrowed right rail: 320 -> 248
+  rightCol: { width: 248, borderLeftWidth: 1, borderLeftColor: COLORS.border },
+  rightColContent: { padding: 16, gap: 16 },
 
-  // ─── RIGHT RAIL ───────────────────────────────────────
-  // Pushed further right: no left border, natural flow
-  rightCol: {
-    width: 280,
-    marginRight: 24,   // breathing room from the window edge
-  },
-  rightColContent: {
-    paddingTop: 20,
-    paddingBottom: 40,
-    gap: 14,
-  },
-
-  // ─── CARD ─────────────────────────────────────────────
   card: {
     backgroundColor: COLORS.card,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 18,
+    padding: 20,
   },
 
-  // ─── COMPOSER ─────────────────────────────────────────
+  /* COMPOSER */
   composerTopRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  composerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  composerAvatarText: { fontFamily: FONT.bold, fontSize: 14, color: "#FFFFFF" },
-  composerGreeting: {
-    fontFamily: FONT.medium,
-    fontSize: 15,
-    color: COLORS.slate,
-  },
+  composerAvatar: { width: 44, height: 44, borderRadius: 22 },
+  composerGreeting: { fontFamily: FONT.bold, fontSize: 17, color: COLORS.navy },
   composerInput: {
     flex: 1,
     fontFamily: FONT.medium,
@@ -864,169 +857,166 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 70,
+    minWidth: 74,
   },
-  postSubmitBtnDisabled: { opacity: 0.4 },
+  postSubmitBtnDisabled: { backgroundColor: COLORS.border },
   postSubmitText: { fontFamily: FONT.semibold, fontSize: 13.5, color: "#FFFFFF" },
   composerActionsRow: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 14,
+    gap: 10,
+    marginTop: 16,
     flexWrap: "wrap",
   },
   composerAction: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 9,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
   },
   composerActionIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
   },
-  composerActionLabel: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.slateDark },
+  composerActionLabel: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
 
-  // ─── FEED STATE ───────────────────────────────────────
-  feedLoading: {
-    paddingVertical: 60,
-    alignItems: "center",
-    gap: 12,
-  },
-  feedLoadingText: { fontFamily: FONT.medium, fontSize: 14, color: COLORS.slate },
-  emptyFeed: {
-    backgroundColor: COLORS.card,
-    borderRadius: 16,
+  /* TABS */
+  tabsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
+  tabsGroup: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  tabPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 48,
-    alignItems: "center",
-    gap: 8,
   },
-  emptyFeedIcon: { fontSize: 36 },
-  emptyFeedTitle: { fontFamily: FONT.bold, fontSize: 18, color: COLORS.navy },
-  emptyFeedText: {
-    fontFamily: FONT.regular,
-    fontSize: 14,
-    color: COLORS.slate,
-    textAlign: "center",
-    maxWidth: 340,
-    lineHeight: 21,
-  },
+  tabPillActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  tabPillText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
+  tabPillTextActive: { color: "#FFFFFF" },
+  sortRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  sortText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
 
-  // ─── POST CARD ────────────────────────────────────────
-  postHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  postAvatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: COLORS.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  postAvatarText: { fontFamily: FONT.bold, fontSize: 14, color: COLORS.primary },
+  /* POST */
+  postHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  postAvatar: { width: 44, height: 44, borderRadius: 22 },
   postNameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   postName: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
-  deptBadge: {
-    backgroundColor: COLORS.primarySoft,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    borderRadius: 12,
   },
-  deptBadgeText: { fontFamily: FONT.semibold, fontSize: 11, color: COLORS.primary },
-  postMeta: { fontFamily: FONT.regular, fontSize: 12, color: COLORS.slate, marginTop: 2 },
-  postText: {
-    fontFamily: FONT.regular,
-    fontSize: 14.5,
-    lineHeight: 22,
-    color: COLORS.slateDark,
-    marginTop: 12,
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText: { fontFamily: FONT.semibold, fontSize: 11.5 },
+  postMeta: { fontFamily: FONT.regular, fontSize: 12.5, color: COLORS.slate, marginTop: 2 },
+  postText: { fontFamily: FONT.regular, fontSize: 14.5, lineHeight: 22, color: COLORS.slateDark, marginTop: 14 },
+
+  linkCard: {
+    marginTop: 14,
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    overflow: "hidden",
   },
+  linkCardImage: { width: 190, height: 130 },
+  linkCardInfo: { flex: 1, padding: 14, justifyContent: "center", gap: 4 },
+  linkCardTitle: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
+  linkCardDesc: { fontFamily: FONT.regular, fontSize: 12.5, color: COLORS.slate, lineHeight: 18 },
+  linkCardUrlRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 },
+  linkCardUrl: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.primary },
+
+  videoWrap: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+    height: 280,
+  },
+  videoImage: { width: "100%", height: "100%" },
+  playButton: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginTop: -26,
+    marginLeft: -26,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(15,23,42,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   postFooterRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 14,
-    paddingTop: 12,
+    marginTop: 16,
+    paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
-  postFooterLeft: { flexDirection: "row", gap: 20 },
+  postFooterLeft: { flexDirection: "row", gap: 22 },
   footerAction: { flexDirection: "row", alignItems: "center", gap: 6 },
   footerActionText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slate },
 
-  // ─── RIGHT RAIL INTERNALS ─────────────────────────────
-  railTitle: { fontFamily: FONT.bold, fontSize: 14, color: COLORS.navy, marginBottom: 4 },
-
-  // User card
-  userCardHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
-  userCardAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userCardAvatarText: { fontFamily: FONT.extrabold, fontSize: 17, color: "#FFFFFF" },
-  userCardInfo: { flex: 1 },
-  userCardName: { fontFamily: FONT.bold, fontSize: 15, color: COLORS.navy },
-  userCardSub: { fontFamily: FONT.regular, fontSize: 12, color: COLORS.slate, marginTop: 2 },
-  userCardDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
-  userRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 5,
-  },
-  userRowLabel: { fontFamily: FONT.semibold, fontSize: 12, color: COLORS.slate },
-  userRowValue: {
-    fontFamily: FONT.medium,
-    fontSize: 12,
-    color: COLORS.navy,
-    maxWidth: 140,
-    textAlign: "right",
-    textTransform: "capitalize",
-  },
-  editProfileBtn: {
-    marginTop: 14,
-    height: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editProfileBtnText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.primary },
-
-  // Quick links
-  quickLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
-  quickLinkIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    backgroundColor: COLORS.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quickLinkText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.slateDark },
-
-  // Navigate
-  navRow: {
+  /* RIGHT RAIL */
+  railHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  railTitle: { fontFamily: FONT.bold, fontSize: 14.5, color: COLORS.navy },
+  railViewAll: { fontFamily: FONT.semibold, fontSize: 12, color: COLORS.primary },
+  trendingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    gap: 8,
   },
-  navRowText: { fontFamily: FONT.semibold, fontSize: 13, color: COLORS.navy },
-  navRowArrow: { fontSize: 14, color: COLORS.slate },
+  trendingLeft: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  hashCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trendingTag: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.navy, flexShrink: 1 },
+  trendingCount: { fontFamily: FONT.regular, fontSize: 11, color: COLORS.slate },
+
+  eventRow: { flexDirection: "row", gap: 10, paddingVertical: 12 },
+  dateBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateBadgeMonth: { fontFamily: FONT.semibold, fontSize: 9.5, color: COLORS.primary },
+  dateBadgeDay: { fontFamily: FONT.extrabold, fontSize: 15, color: COLORS.primary, marginTop: -2 },
+  eventTitle: { fontFamily: FONT.bold, fontSize: 12.5, color: COLORS.navy },
+  eventSubtitle: { fontFamily: FONT.regular, fontSize: 11, color: COLORS.slate, marginTop: 1 },
+  eventDate: { fontFamily: FONT.regular, fontSize: 10.5, color: COLORS.slate, marginTop: 2 },
+  eventDivider: { height: 1, backgroundColor: COLORS.border },
+
+  quickLinkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9 },
+  quickLinkIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickLinkText: { fontFamily: FONT.semibold, fontSize: 12.5, color: COLORS.slateDark, flexShrink: 1 },
 });
