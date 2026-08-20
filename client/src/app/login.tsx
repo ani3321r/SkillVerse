@@ -31,7 +31,6 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../services/api";
-import { shadow } from "../utils/shadow";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -393,7 +392,7 @@ const styles = StyleSheet.create({
   chatChip: { position: "absolute", top: -6, left: 40, width: 34, height: 34, borderRadius: 9, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", zIndex: 2 },
   chatChipText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
   rightPanel: { flex: 1, backgroundColor: "#FBFBFE", alignItems: "center", justifyContent: "center", padding: 24 },
-  card: { width: "100%", maxWidth: 460, backgroundColor: "#FFFFFF", borderRadius: 22, padding: 44, alignItems: "center", borderWidth: 1, borderColor: COLORS.border, ...shadow(0, 16, 60, 0.06), elevation: 3 },
+  card: { width: "100%", maxWidth: 460, backgroundColor: "#FFFFFF", borderRadius: 22, padding: 44, alignItems: "center", borderWidth: 1, borderColor: COLORS.border, shadowColor: "#1E293B", shadowOpacity: 0.06, shadowRadius: 30, shadowOffset: { width: 0, height: 16 }, elevation: 3 },
   lockCircle: { width: 62, height: 62, borderRadius: 31, backgroundColor: "#E7EEFE", alignItems: "center", justifyContent: "center" },
   title: { marginTop: 22, fontFamily: FONT.extrabold, fontSize: 24, color: COLORS.navy, textAlign: "center" },
   subtitle: { marginTop: 10, fontFamily: FONT.regular, fontSize: 14, color: COLORS.slate, textAlign: "center" },

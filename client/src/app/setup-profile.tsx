@@ -23,7 +23,6 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../services/api";
-import { shadow } from "../utils/shadow";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -472,7 +471,7 @@ const styles = StyleSheet.create({
   bodyDesktop: { flexDirection: "row", gap: 40, paddingTop: 48 },
   leftCol: { width: 280 },
   decorBlob: { width: 260, height: 260, borderRadius: 130, backgroundColor: "#E9EEFC", alignItems: "center", justifyContent: "center" },
-  mockCard: { width: 130, height: 160, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16, alignItems: "center", ...shadow(0, 8, 32, 0.08), elevation: 3 },
+  mockCard: { width: 130, height: 160, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 16, alignItems: "center", shadowColor: "#1E293B", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   mockAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center", marginBottom: 14 },
   mockLine: { width: "85%", height: 6, borderRadius: 3, backgroundColor: "#E2E8F5", marginTop: 8 },
   journeyBadge: { marginTop: 28, width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.iconBlueBg, alignItems: "center", justifyContent: "center" },
