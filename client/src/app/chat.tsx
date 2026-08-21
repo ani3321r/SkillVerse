@@ -220,16 +220,33 @@ export default function ChatScreen() {
     });
 
     socket.on("new-message", (msg: Message) => {
-      // If the incoming message belongs to the currently open conversation,
-      // append it to the message list immediately
+      // 1. If the incoming message belongs to the currently open conversation,
+      //    append it to the message list immediately
       if (msg.conversation_id === activeConvIdRef.current) {
         setMessages(prev =>
           prev.some(m => m.id === msg.id) ? prev : [...prev, msg]
         );
         setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
       }
-      // Always refresh the conversation list so the preview + timestamp update
-      loadConversations(false);
+
+      // 2. Optimistically update the conversation list preview in local state
+      //    so the lobby shows the new last message instantly without waiting for API
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.conversation_id === msg.conversation_id);
+        if (idx === -1) {
+          // Unknown conversation — do a full reload to pick it up
+          loadConversations(false);
+          return prev;
+        }
+        // Move updated conversation to top with new last_message
+        const updated = {
+          ...prev[idx],
+          last_message: msg.message,
+          last_message_time: msg.created_at,
+        };
+        const rest = prev.filter((_, i) => i !== idx);
+        return [updated, ...rest];
+      });
     });
 
     return () => {
