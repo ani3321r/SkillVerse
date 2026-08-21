@@ -1,12 +1,22 @@
 import express from "express";
+import Groq from "groq-sdk";
 import { GoogleGenAI } from "@google/genai";
 import { pool } from "../config/database";
 import { requireAuth } from "../middleware/auth";
 
 const router = express.Router();
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const GEMINI_MODEL = "gemini-3.6-flash";
+// ============================================
+// AI CLIENT — Groq primary, Gemini fallback
+// Groq free tier: 14,400 req/day, 30 req/min
+// Gemini free tier: 20 req/day (backup only)
+// ============================================
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+const GROQ_MODEL   = "openai/gpt-oss-20b";   // clean JSON, no thinking tokens, fast
+const GEMINI_MODEL = "gemini-3.6-flash";         // fallback
 
 // ============================================
 // PROGRESSION RULES
@@ -99,11 +109,40 @@ async function getSkillStatus(userId: number, skillId: number) {
 }
 
 // ============================================
-// SHARED HELPER — callGemini
+// SHARED HELPER — callAI
+// Tries Groq first (14,400 req/day free).
+// Falls back to Gemini if Groq key is missing
+// or Groq returns a rate-limit error.
 // ============================================
 
-async function callGemini(prompt: string): Promise<string> {
-  const response = await ai.models.generateContent({
+async function callAI(prompt: string): Promise<string> {
+  // ── Try Groq ──────────────────────────────
+  if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== "your_groq_api_key_here") {
+    try {
+      const completion = await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        max_tokens: 2048,
+      });
+      return (completion.choices[0]?.message?.content ?? "")
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        // Strip <think>...</think> blocks (Qwen3 style) just in case
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .trim();
+    } catch (groqError: any) {
+      const msg = groqError?.message ?? String(groqError);
+      // Only fall through to Gemini on rate-limit; re-throw other errors
+      if (!msg.includes("429") && !msg.includes("rate_limit") && !msg.includes("RESOURCE_EXHAUSTED")) {
+        throw groqError;
+      }
+      console.warn("Groq rate limit hit — falling back to Gemini");
+    }
+  }
+
+  // ── Fallback: Gemini ─────────────────────
+  const response = await gemini.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
   });
@@ -277,7 +316,7 @@ router.post("/generate-assignment", requireAuth, async (req, res) => {
     const difficulty = status.nextDifficulty;
 
     // -- Call Gemini --
-    const rawText = await callGemini(
+    const rawText = await callAI(
       buildAssignmentPrompt(skill.name, skill.category, difficulty)
     );
 
@@ -290,7 +329,7 @@ router.post("/generate-assignment", requireAuth, async (req, res) => {
     try {
       assignment = JSON.parse(rawText);
     } catch {
-      console.error("Gemini returned invalid JSON:", rawText);
+      console.error("AI returned invalid JSON:", rawText);
       return res.status(502).json({
         success: false,
         message: "AI returned an invalid response. Please try again.",
@@ -458,7 +497,7 @@ Rules:
 - No markdown.
 `.trim();
 
-    const rawText = await callGemini(evalPrompt);
+    const rawText = await callAI(evalPrompt);
 
     let evaluation: {
       score: number;
@@ -637,8 +676,8 @@ router.post("/next-assignment", requireAuth, async (req, res) => {
     const status = await getSkillStatus(userId, skillId);
     const difficulty = status.nextDifficulty;
 
-    // Generate via Gemini
-    const rawText = await callGemini(
+    // Generate next assignment
+    const rawText = await callAI(
       buildAssignmentPrompt(skill.name, skill.category, difficulty)
     );
 

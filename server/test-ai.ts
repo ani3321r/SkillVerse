@@ -23,7 +23,24 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import Groq from "groq-sdk";
 import { pool } from "./src/config/database";
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const GROQ_MODEL = "openai/gpt-oss-20b";
+
+async function callAI(prompt: string): Promise<string> {
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7,
+    max_tokens: 1024,
+  });
+  return (completion.choices[0]?.message?.content ?? "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+}
 
 const API  = "http://localhost:5000";
 
