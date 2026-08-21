@@ -276,28 +276,46 @@ export default function ChatScreen() {
     const targetName = String(params.name || "");
     if (!targetId || !userId || !token) return;
     openOrCreateConversation(targetId, targetName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.userId, userId, token]);
 
   /* ── OPEN OR CREATE A CONVERSATION ── */
   const openOrCreateConversation = async (otherUserId: number, otherName: string) => {
     if (!token || !userId) return;
     try {
-      // Try to find existing conversation first
-      const existing = conversations.find(c => c.other_user_id === otherUserId);
-      if (existing) {
-        selectConversation(existing.conversation_id, otherUserId, otherName);
-        return;
-      }
-      // Create if not found
+      // Always call the API — it returns existing or creates new (idempotent)
       const res  = await apiFetch("/api/chat/conversations", token, {
         method: "POST",
         body: JSON.stringify({ otherUserId }),
       });
       const data = await res.json();
-      if (data.success) {
-        await loadConversations();
-        selectConversation(data.conversationId, otherUserId, otherName);
-      }
+      if (!data.success) return;
+
+      const convId = data.conversationId as number;
+
+      // Ensure this conversation exists in local state immediately
+      // so it shows in the lobby without waiting for the next poll
+      setConversations(prev => {
+        const exists = prev.find(c => c.conversation_id === convId);
+        if (exists) return prev; // already there
+        // Add it at the top
+        const newConv: Conversation = {
+          conversation_id:   convId,
+          other_user_id:     otherUserId,
+          other_user_name:   otherName,
+          other_user_email:  "",
+          other_user_avatar: null,
+          last_message:      null,
+          last_message_time: null,
+        };
+        return [newConv, ...prev];
+      });
+
+      // Open the chat pane
+      selectConversation(convId, otherUserId, otherName);
+
+      // Do a full reload in the background to get accurate last_message data
+      loadConversations(false);
     } catch { /* silent */ }
   };
 
