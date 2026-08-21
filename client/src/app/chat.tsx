@@ -185,6 +185,9 @@ export default function ChatScreen() {
 
   const socketRef  = useRef<Socket | null>(null);
   const flatRef    = useRef<FlatList>(null);
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Keep a ref to active conv id so the socket handler always reads the latest
+  const activeConvIdRef = useRef<number | null>(null);
 
   const [fontsLoaded] = useFonts({
     PlusJakartaSans_400Regular, PlusJakartaSans_500Medium,
@@ -192,19 +195,63 @@ export default function ChatScreen() {
     PlusJakartaSans_800ExtraBold,
   });
 
-  /* ── LOAD CONVERSATION LIST ── */
-  const loadConversations = useCallback(async () => {
+  /* ── LOAD CONVERSATION LIST (silently refreshes without resetting UI) ── */
+  const loadConversations = useCallback(async (showSpinner = false) => {
     if (!token) return;
     try {
-      setConvLoading(true);
+      if (showSpinner) setConvLoading(true);
       const res  = await apiFetch("/api/chat/conversations", token);
       const data = await res.json();
       if (data.success) setConversations(data.conversations || []);
     } catch { /* silent */ }
-    finally { setConvLoading(false); }
+    finally { if (showSpinner) setConvLoading(false); }
   }, [token]);
 
-  useFocusEffect(useCallback(() => { loadConversations(); }, [loadConversations]));
+  /* ── PERSISTENT SOCKET — connects once, stays alive for the whole session ── */
+  useEffect(() => {
+    if (!userId || !token) return;
+
+    const socket = io(API_URL, { transports: ["websocket"] });
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      // Join the personal user room so we receive messages from ALL conversations
+      socket.emit("join-user", userId);
+    });
+
+    socket.on("new-message", (msg: Message) => {
+      // If the incoming message belongs to the currently open conversation,
+      // append it to the message list immediately
+      if (msg.conversation_id === activeConvIdRef.current) {
+        setMessages(prev =>
+          prev.some(m => m.id === msg.id) ? prev : [...prev, msg]
+        );
+        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
+      }
+      // Always refresh the conversation list so the preview + timestamp update
+      loadConversations(false);
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [userId, token, loadConversations]);
+
+  /* ── POLLING — refresh conversation list every 5 seconds ── */
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations(true);
+      // Poll silently every 5s while on this screen
+      pollRef.current = setInterval(() => loadConversations(false), 5000);
+      return () => {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      };
+    }, [loadConversations])
+  );
 
   /* ── HANDLE INCOMING PARAMS (from student-profile "Message" button) ── */
   useEffect(() => {
@@ -240,6 +287,7 @@ export default function ChatScreen() {
   /* ── SELECT A CONVERSATION ── */
   const selectConversation = async (convId: number, otherUserId: number, otherName: string) => {
     setActiveConvId(convId);
+    activeConvIdRef.current = convId;
     setActiveOtherUser({ id: otherUserId, name: otherName });
     setMsgLoading(true);
     setMessages([]);
@@ -249,24 +297,16 @@ export default function ChatScreen() {
       const data = await res.json();
       if (data.success) setMessages(data.messages || []);
     } catch { /* silent */ }
-    finally { setMsgLoading(false); }
-
-    // Socket setup
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
+    finally {
+      setMsgLoading(false);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
     }
-    const socket = io(API_URL);
-    socketRef.current = socket;
-    socket.on("connect", () => {
-      socket.emit("join-user", userId);
-      socket.emit("join-conversation", { conversationId: convId, userId });
-    });
-    socket.on("new-message", (msg: Message) => {
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
-      // Refresh conversation list to update last message
-      loadConversations();
-    });
+
+    // Join this conversation room on the persistent socket so we can send messages
+    // (receiving is handled by the user room — no need to rejoin for receiving)
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("join-conversation", { conversationId: convId, userId });
+    }
   };
 
   /* ── SEND MESSAGE ── */
@@ -281,14 +321,6 @@ export default function ChatScreen() {
     setText("");
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
   };
-
-  /* ── CLEANUP ── */
-  useEffect(() => {
-    return () => {
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
-  }, []);
 
   /* ── FILTERED CONVERSATIONS ── */
   const filteredConvs = conversations.filter(c => {
@@ -403,7 +435,7 @@ export default function ChatScreen() {
           >
             {/* Chat header */}
             <View style={g.chatHeader}>
-              <Pressable style={g.chatBackBtn} onPress={() => { setActiveConvId(null); setActiveOtherUser(null); }}>
+              <Pressable style={g.chatBackBtn} onPress={() => { setActiveConvId(null); setActiveOtherUser(null); activeConvIdRef.current = null; }}>
                 <BackArrow/>
               </Pressable>
               <View style={[g.chatHeaderAvatar, { backgroundColor: avColor(activeOtherUser.id).bg }]}>
