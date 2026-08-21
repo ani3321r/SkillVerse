@@ -155,10 +155,10 @@ export default function SkillsScreen() {
         }
       }
 
-      // STEP 2 — generate assignment for first selected skill
+      // STEP 2 — generate assignment for first skill (server decides difficulty)
       const res  = await apiFetch("/api/ai/generate-assignment", token, {
         method: "POST",
-        body: JSON.stringify({ userId: uid, skillId: firstSkillId, difficulty: "Beginner" }),
+        body: JSON.stringify({ userId: uid, skillId: firstSkillId }),
       });
       const data = await res.json();
 

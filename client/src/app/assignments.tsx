@@ -163,14 +163,14 @@ export default function AssignmentsScreen() {
 
   useFocusEffect(useCallback(() => { loadSkills(); }, [loadSkills]));
 
-  /* ── GENERATE ASSIGNMENT (unchanged logic) ── */
-  const startAssignment = async (skillId: number, level: string) => {
+  /* ── GENERATE ASSIGNMENT — server decides difficulty, client only sends userId + skillId ── */
+  const startAssignment = async (skillId: number) => {
     if (!userId || !token) return;
     setGenerating(skillId);
     try {
       const res  = await apiFetch("/api/ai/generate-assignment", token, {
         method: "POST",
-        body: JSON.stringify({ userId: Number(userId), skillId: Number(skillId), difficulty: level }),
+        body: JSON.stringify({ userId: Number(userId), skillId: Number(skillId) }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to generate");
@@ -345,7 +345,7 @@ export default function AssignmentsScreen() {
                   <Pressable
                     key={skill.skill_id}
                     style={g.card}
-                    onPress={() => startAssignment(skill.skill_id, skill.level)}
+                    onPress={() => startAssignment(skill.skill_id)}
                   >
                     {/* SKILL ICON */}
                     <View style={[g.skillIcon, { backgroundColor: pal.bg }]}>

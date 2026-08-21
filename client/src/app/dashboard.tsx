@@ -334,12 +334,12 @@ export default function DashboardScreen() {
   useEffect(() => { loadDashboard(); }, [userId, token]);
 
   /* ── CONTINUE LEARNING (unchanged logic) ── */
-  const startLearning = async (skillId: number, level: string = "Beginner") => {
+  const startLearning = async (skillId: number) => {
     if (!userId || !token) return;
     try {
       const res  = await apiFetch("/api/ai/generate-assignment", token, {
         method: "POST",
-        body: JSON.stringify({ userId, skillId, difficulty: level }),
+        body: JSON.stringify({ userId: Number(userId), skillId: Number(skillId) }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to generate assignment");
@@ -550,7 +550,7 @@ export default function DashboardScreen() {
                     <Pressable
                       key={skill.id}
                       style={s.learnRow}
-                      onPress={() => startLearning(skill.skill_id, skill.level)}
+                      onPress={() => startLearning(skill.skill_id)}
                     >
                       <View style={[s.skillIcon, { backgroundColor: col.bg }]}>
                         <Text style={[s.skillIconText, { color: col.text }]}>
