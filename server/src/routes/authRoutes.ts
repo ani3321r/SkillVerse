@@ -1,6 +1,7 @@
 import express from "express";
 import { pool } from "../config/database";
 import { signToken } from "../middleware/auth";
+import { sendWelcomeEmail } from "../services/emailService";
 
 const router = express.Router();
 
@@ -151,6 +152,9 @@ router.post("/google", async (req, res) => {
       userId: user.id,
       email: user.email,
     });
+
+    // Send welcome email (fire-and-forget — never blocks the response)
+    sendWelcomeEmail({ to: user.email, name: user.name });
 
     return res.status(201).json({
       success: true,

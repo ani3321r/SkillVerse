@@ -3,6 +3,10 @@ import Groq from "groq-sdk";
 import { GoogleGenAI } from "@google/genai";
 import { pool } from "../config/database";
 import { requireAuth } from "../middleware/auth";
+import {
+  sendAssignmentResultEmail,
+  sendLevelUpEmail,
+} from "../services/emailService";
 
 const router = express.Router();
 
@@ -586,6 +590,43 @@ Rules:
       const remaining = statusAfter.passesRequired - statusAfter.passesAtCurrentLevel;
       levelUpMessage =
         `Good work! ${remaining} more pass${remaining !== 1 ? "es" : ""} at ${statusAfter.currentLevel} level to unlock ${statusAfter.nextLevel ?? "the next level"}.`;
+    }
+
+    // -- Send emails (fire-and-forget) --
+
+    // Fetch the user's email + name for the emails
+    const userEmailRow = await pool.query(
+      `SELECT name, email FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (userEmailRow.rows.length > 0) {
+      const { name, email } = userEmailRow.rows[0];
+
+      // Always send the assignment result email
+      sendAssignmentResultEmail({
+        to:              email,
+        name,
+        skillName:       assignment.skill_name,
+        assignmentTitle: assignment.title,
+        difficulty:      assignment.difficulty,
+        score,
+        passed,
+        feedback:        evaluation.feedback,
+        strengths:       evaluation.strengths || [],
+        improvements:    evaluation.improvements || [],
+      });
+
+      // Send level-up email only when the student earns a new level
+      if (leveledUp && statusAfter.nextLevel) {
+        sendLevelUpEmail({
+          to:            email,
+          name,
+          skillName:     assignment.skill_name,
+          previousLevel: statusBefore.currentLevel,
+          newLevel:      statusAfter.nextLevel,
+        });
+      }
     }
 
     return res.json({
